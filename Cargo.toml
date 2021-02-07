@@ -1,0 +1,31 @@
+[package]
+name = "rustls-acme"
+version = "0.1.0"
+authors = ["Florian Uekermann <florian@uekermann.me>"]
+edition = "2018"
+description = "TLS certificate management and serving using rustls"
+license = "Apache-2.0 OR MIT"
+keywords = ["acme", "rustls", "tls"]
+categories = ["asynchronous", "cryptography", "network-programming"]
+
+[dependencies]
+async-std = "1.8"
+async-rustls = "0.2"
+futures = "0.3"
+rcgen = "0.8"
+async-h1 = "2.3"
+http-types = "2.9"
+serde_json = "1.0"
+serde = "1.0"
+ring = { version="0.16", features=["std"] }
+base64 = "0.13"
+log = "0.4"
+webpki-roots = "0.21"
+pem = "0.8"
+thiserror = "1.0"
+x509-parser = "0.9"
+chrono = "0.4"
+
+[dev-dependencies]
+simple_logger = "1.11"
+structopt = "0.3"
