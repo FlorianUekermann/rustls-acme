@@ -1,3 +1,5 @@
+[![Documentation](https://docs.rs/rustls-acme/badge.svg)](https://docs.rs/rustls-acme/)
+
 TLS certificate management and serving using rustls
 
 ## License
