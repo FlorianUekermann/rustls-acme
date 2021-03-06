@@ -53,7 +53,7 @@
 //! domain, port and cache directory parameters.
 //!
 //! Note that all examples use the let's encrypt staging directory. The production directory imposes
-//! string rate limits, which are easily exhausted accidentally during testing and development.
+//! strict rate limits, which are easily exhausted accidentally during testing and development.
 //! For testing with the staging directory you may open
 //! `https://<your domain>:<port>` in a browser that allows TLS connection to servers signed by an
 //! untrusted CA (in Firefox click "Advanced..." -> "Accept the Risk and Continue").
