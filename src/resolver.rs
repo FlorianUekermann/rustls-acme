@@ -74,7 +74,7 @@ impl ResolvesServerCertUsingAcme {
         let cert = rcgen::Certificate::from_params(params)?;
         let pk = any_ecdsa_type(&PrivateKey(cert.serialize_private_key_der())).unwrap();
         let directory = Directory::discover(directory_url).await?;
-        let account = Account::load_or_create(directory, Some("test-persist")).await?;
+        let account = Account::load_or_create(directory, cache_dir.as_ref()).await?;
         let mut order = account.new_order(domains.clone()).await?;
         loop {
             order = match order {
