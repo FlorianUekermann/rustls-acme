@@ -207,7 +207,7 @@ impl ResolvesServerCertUsingAcme {
                     .unwrap()
                     .insert(domain.clone(), auth_key);
                 account.challenge(&challenge.url).await?;
-                (challenge.url.clone(), domain)
+                (domain, challenge.url.clone())
             }
             Auth::Valid => return Ok(()),
             auth => return Err(OrderError::BadAuth(auth)),
