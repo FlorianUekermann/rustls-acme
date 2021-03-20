@@ -43,7 +43,7 @@ impl ResolvesServerCertUsingAcme {
         loop {
             let d = self.duration_until_renewal_attempt(err_cnt);
             if d.as_secs() != 0 {
-                log::info!("next renewal attemt in {}s", d.as_secs());
+                log::info!("next renewal attempt in {}s", d.as_secs());
                 sleep(d).await;
             }
             match self
