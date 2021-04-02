@@ -1,7 +1,7 @@
 use async_std::path::PathBuf;
 use async_std::task;
 use futures::AsyncWriteExt;
-use rustls_acme::{acme::LETS_ENCRYPT_STAGING_DIRECTORY, bind_listen_serve, TlsStream};
+use rustls_acme::{acme::LETS_ENCRYPT_STAGING_DIRECTORY, acme::LETS_ENCRYPT_PRODUCTION_DIRECTORY, bind_listen_serve, TlsStream};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -17,6 +17,10 @@ struct Opt {
 
     #[structopt(short, long, default_value = "443")]
     port: u16,
+
+    /// Use Let's Encrypt production server. Default is staging.
+    #[structopt(long)]
+    production: bool,
 }
 
 fn main() {
@@ -26,10 +30,15 @@ fn main() {
         .unwrap();
     let opt = Opt::from_args();
 
+    let dir = match opt.production {
+        true => LETS_ENCRYPT_PRODUCTION_DIRECTORY,
+        false => LETS_ENCRYPT_STAGING_DIRECTORY,
+    };
+
     task::block_on(async {
         bind_listen_serve(
-            format!("0.0.0.0:{}", opt.port),
-            LETS_ENCRYPT_STAGING_DIRECTORY,
+            format!("[::]:{}", opt.port),
+            dir,
             vec![opt.domain.clone()],
             opt.cache_dir.clone(),
             hello,
