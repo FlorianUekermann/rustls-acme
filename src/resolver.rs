@@ -97,8 +97,9 @@ impl ResolvesServerCertUsingAcme {
                 Order::Valid { certificate } => {
                     log::info!("download certificate");
                     let acme_cert_pem = account.certificate(certificate).await?;
-                    let acme_cert = RustlsCertificate(pem::parse(&acme_cert_pem)?.contents);
-                    let cert_key = CertifiedKey::new(vec![acme_cert], Arc::new(pk));
+                    let pems = pem::parse_many(&acme_cert_pem);
+                    let cert_chain = pems.into_iter().map(|p| RustlsCertificate(p.contents)).collect();
+                    let cert_key = CertifiedKey::new(cert_chain, Arc::new(pk));
                     self.cert_key.lock().unwrap().replace(cert_key.clone());
                     let pk_pem = cert.serialize_private_key_pem();
                     Self::save_certified_key(cache_dir, file_name, pk_pem, acme_cert_pem).await;
@@ -162,8 +163,8 @@ impl ResolvesServerCertUsingAcme {
                 return;
             }
         };
-        let acme_cert = RustlsCertificate(pems.remove(0).contents);
-        let cert_key = CertifiedKey::new(vec![acme_cert], Arc::new(pk));
+        let cert_chain = pems.into_iter().map(|p| RustlsCertificate(p.contents)).collect();
+        let cert_key = CertifiedKey::new(cert_chain, Arc::new(pk));
         self.cert_key.lock().unwrap().replace(cert_key);
         log::info!("found certificate in cache directory")
     }
