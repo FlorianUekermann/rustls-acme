@@ -55,7 +55,7 @@ async fn hello(mut tls: TlsStream) {
 }
 
 const HELLO: &'static [u8] = br#"HTTP/1.1 200 OK
-Content-Length: 11
+Content-Length: 10
 Content-Type: text/plain; charset=utf-8
 
 Hello Tls!"#;

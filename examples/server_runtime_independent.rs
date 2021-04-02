@@ -62,7 +62,7 @@ async fn serve(acceptor: TlsAcceptor) -> Result<(), Box<dyn Error>> {
 }
 
 const HELLO: &'static [u8] = br#"HTTP/1.1 200 OK
-Content-Length: 11
+Content-Length: 10
 Content-Type: text/plain; charset=utf-8
 
 Hello Tls!"#;
