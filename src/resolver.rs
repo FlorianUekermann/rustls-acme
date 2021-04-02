@@ -36,7 +36,7 @@ impl ResolvesServerCertUsingAcme {
         cache_dir: Option<P>,
     ) {
         domains.sort();
-        let file_name = Self::cached_cert_file_name(&domains);
+        let file_name = Self::cached_cert_file_name(&domains, &directory_url);
         self.load_certified_key(&cache_dir, &file_name).await;
 
         let mut err_cnt = 0usize;
@@ -184,12 +184,14 @@ impl ResolvesServerCertUsingAcme {
             None => log::info!("could not save certificate, no cache directory specified"),
         }
     }
-    fn cached_cert_file_name(domains: &Vec<String>) -> String {
+    fn cached_cert_file_name(domains: &Vec<String>, directory_url: impl AsRef<str>) -> String {
         let mut ctx = Context::new(&SHA256);
         for domain in domains {
             ctx.update(domain.as_ref());
             ctx.update(&[0])
         }
+        // cache is specific to a particular ACME API URL
+        ctx.update(directory_url.as_ref().as_bytes());
         let hash = base64::encode_config(ctx.finish(), base64::URL_SAFE_NO_PAD);
         format!("cached_cert_{}", hash)
     }
