@@ -1,7 +1,10 @@
 use async_std::path::PathBuf;
 use async_std::task;
 use futures::AsyncWriteExt;
-use rustls_acme::{acme::LETS_ENCRYPT_STAGING_DIRECTORY, acme::LETS_ENCRYPT_PRODUCTION_DIRECTORY, bind_listen_serve, TlsStream};
+use rustls_acme::{
+    acme::LETS_ENCRYPT_PRODUCTION_DIRECTORY, acme::LETS_ENCRYPT_STAGING_DIRECTORY,
+    bind_listen_serve, TlsStream,
+};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
