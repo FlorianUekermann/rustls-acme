@@ -17,6 +17,10 @@ struct Opt {
     domain: String,
 
     /// Cache directory
+    #[structopt(long)]
+    contact: Option<String>,
+
+    /// Cache directory
     #[structopt(short, parse(from_os_str))]
     cache_dir: Option<PathBuf>,
 
@@ -31,7 +35,7 @@ fn main() {
         .unwrap();
     let opt = Opt::from_args();
 
-    let resolver = ResolvesServerCertUsingAcme::new();
+    let resolver = ResolvesServerCertUsingAcme::with_contact(&opt.contact);
     let config = ServerConfig::new(NoClientAuth::new());
     let acceptor = TlsAcceptor::new(config, resolver.clone());
 

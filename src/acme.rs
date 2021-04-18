@@ -6,10 +6,12 @@ use async_std::path::{Path, PathBuf};
 use base64::URL_SAFE_NO_PAD;
 use http_types::{Method, Response};
 use rcgen::{Certificate, CustomExtension, RcgenError, PKCS_ECDSA_P256_SHA256};
+use ring::digest::{Context, SHA256};
 use ring::error::{KeyRejected, Unspecified};
 use ring::rand::SystemRandom;
 use ring::signature::{EcdsaKeyPair, ECDSA_P256_SHA256_FIXED_SIGNING};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -28,17 +30,24 @@ pub struct Account {
 }
 
 impl Account {
-    pub async fn load_or_create<P: AsRef<Path>>(
+    pub async fn load_or_create<'a, P, S, I>(
         directory: Directory,
         cache_dir: Option<P>,
-    ) -> Result<Self, AcmeError> {
-        const FILE: &str = "acme_account_key";
+        contact: I,
+    ) -> Result<Self, AcmeError>
+    where
+        P: AsRef<Path>,
+        S: AsRef<str> + 'a,
+        I: IntoIterator<Item = &'a S>,
+    {
         let alg = &ECDSA_P256_SHA256_FIXED_SIGNING;
         if let Some(cache_dir) = &cache_dir {
             create_dir_all(cache_dir).await?;
         }
+        let contact: Vec<&'a str> = contact.into_iter().map(AsRef::<str>::as_ref).collect();
+        let file = Self::cached_key_file_name(&contact);
         let pkcs8 = match &cache_dir {
-            Some(cache_dir) => read_if_exist(cache_dir, FILE).await?,
+            Some(cache_dir) => read_if_exist(cache_dir, &file).await?,
             None => None,
         };
         let key_pair = match pkcs8 {
@@ -51,19 +60,24 @@ impl Account {
                 let rng = SystemRandom::new();
                 let pkcs8 = EcdsaKeyPair::generate_pkcs8(alg, &rng)?;
                 if let Some(cache_dir) = &cache_dir {
-                    write(cache_dir, FILE, pkcs8.as_ref()).await?;
+                    write(cache_dir, &file, pkcs8.as_ref()).await?;
                 }
                 EcdsaKeyPair::from_pkcs8(alg, pkcs8.as_ref())?
             }
         };
+        let payload = json!({
+            "termsOfServiceAgreed": true,
+            "contact": contact,
+        })
+        .to_string();
         let body = sign(
             &key_pair,
             None,
             directory.nonce().await?,
             &directory.new_account,
-            "{\"termsOfServiceAgreed\": true}",
+            &payload,
         )?;
-        let response = https(&directory.new_account, Method::Post, Some(body)).await?;
+        let mut response = https(&directory.new_account, Method::Post, Some(body)).await?;
         let kid = get_header(&response, "Location")?;
         Ok(Account {
             key_pair,
@@ -71,6 +85,15 @@ impl Account {
             directory,
             cache: cache_dir.map(|p| p.as_ref().to_path_buf()),
         })
+    }
+    fn cached_key_file_name(contact: &Vec<&str>) -> String {
+        let mut ctx = Context::new(&SHA256);
+        for el in contact {
+            ctx.update(el.as_ref());
+            ctx.update(&[0])
+        }
+        let hash = base64::encode_config(ctx.finish(), base64::URL_SAFE_NO_PAD);
+        format!("cached_account_{}", hash)
     }
     async fn request(&self, url: impl AsRef<str>, payload: &str) -> Result<String, AcmeError> {
         let body = sign(

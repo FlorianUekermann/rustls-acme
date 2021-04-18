@@ -20,6 +20,7 @@ use x509_parser::parse_x509_certificate;
 pub struct ResolvesServerCertUsingAcme {
     cert_key: Mutex<Option<CertifiedKey>>,
     auth_keys: Mutex<BTreeMap<String, CertifiedKey>>,
+    contact: Vec<String>,
 }
 
 impl ResolvesServerCertUsingAcme {
@@ -27,6 +28,22 @@ impl ResolvesServerCertUsingAcme {
         Arc::new(ResolvesServerCertUsingAcme {
             cert_key: Mutex::new(None),
             auth_keys: Mutex::new(BTreeMap::new()),
+            contact: vec![],
+        })
+    }
+    pub fn with_contact<'a, S, I>(contact: I) -> Arc<ResolvesServerCertUsingAcme>
+    where
+        S: AsRef<str> + 'a,
+        I: IntoIterator<Item = &'a S>,
+    {
+        Arc::new(ResolvesServerCertUsingAcme {
+            cert_key: Mutex::new(None),
+            auth_keys: Mutex::new(BTreeMap::new()),
+            contact: contact
+                .into_iter()
+                .map(AsRef::<str>::as_ref)
+                .map(str::to_string)
+                .collect(),
         })
     }
     pub async fn run<P: AsRef<Path>>(
@@ -74,7 +91,7 @@ impl ResolvesServerCertUsingAcme {
         let cert = rcgen::Certificate::from_params(params)?;
         let pk = any_ecdsa_type(&PrivateKey(cert.serialize_private_key_der())).unwrap();
         let directory = Directory::discover(directory_url).await?;
-        let account = Account::load_or_create(directory, cache_dir.as_ref()).await?;
+        let account = Account::load_or_create(directory, cache_dir.as_ref(), &self.contact).await?;
         let mut order = account.new_order(domains.clone()).await?;
         loop {
             order = match order {
