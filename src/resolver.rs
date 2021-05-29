@@ -1,21 +1,14 @@
-use crate::acme::{Account, AcmeError, Auth, Directory, Identifier, Order, ACME_TLS_ALPN_NAME};
+use crate::acme::{duration_until_renewal_attempt, order, ACME_TLS_ALPN_NAME};
 use crate::persist::{read_if_exist, write};
 use async_rustls::rustls::sign::{any_ecdsa_type, CertifiedKey};
 use async_rustls::rustls::Certificate as RustlsCertificate;
 use async_rustls::rustls::{ClientHello, PrivateKey, ResolvesServerCert};
 use async_std::path::Path;
 use async_std::task::sleep;
-use chrono::Utc;
-use futures::future::try_join_all;
-use pem::PemError;
-use rcgen::{CertificateParams, DistinguishedName, RcgenError, PKCS_ECDSA_P256_SHA256};
 use ring::digest::{Context, SHA256};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::Duration;
-use thiserror::Error;
-use x509_parser::parse_x509_certificate;
 
 pub struct ResolvesServerCertUsingAcme {
     cert_key: Mutex<Option<CertifiedKey>>,
@@ -58,16 +51,33 @@ impl ResolvesServerCertUsingAcme {
 
         let mut err_cnt = 0usize;
         loop {
-            let d = self.duration_until_renewal_attempt(err_cnt);
+            let d = duration_until_renewal_attempt(
+                self.cert_key.lock().unwrap().as_ref(),
+                err_cnt
+            );
             if d.as_secs() != 0 {
                 log::info!("next renewal attempt in {}s", d.as_secs());
                 sleep(d).await;
             }
-            match self
-                .order(&directory_url, &domains, &cache_dir, &file_name)
-                .await
+            match order(
+                |domain,auth_key|{
+                    self.auth_keys
+                    .lock()
+                    .unwrap()
+                    .insert(domain.clone(), auth_key);
+                    Ok(())
+                },
+                &directory_url, &domains, cache_dir.as_ref(), &self.contact
+            ).await
             {
-                Ok(_) => {
+                Ok((cert_key, pk_pem, acme_cert_pem)) => {
+                    self.cert_key.lock().unwrap().replace(cert_key.clone());
+                    Self::save_certified_key(
+                        &cache_dir,
+                        &file_name,
+                        pk_pem,
+                        acme_cert_pem
+                    ).await;
                     log::info!("successfully ordered certificate");
                     err_cnt = 0;
                 }
@@ -76,78 +86,6 @@ impl ResolvesServerCertUsingAcme {
                     err_cnt += 1;
                 }
             };
-        }
-    }
-    async fn order<P: AsRef<Path>>(
-        &self,
-        directory_url: impl AsRef<str>,
-        domains: &Vec<String>,
-        cache_dir: &Option<P>,
-        file_name: &str,
-    ) -> Result<(), OrderError> {
-        let mut params = CertificateParams::new(domains.clone());
-        params.distinguished_name = DistinguishedName::new();
-        params.alg = &PKCS_ECDSA_P256_SHA256;
-        let cert = rcgen::Certificate::from_params(params)?;
-        let pk = any_ecdsa_type(&PrivateKey(cert.serialize_private_key_der())).unwrap();
-        let directory = Directory::discover(directory_url).await?;
-        let account = Account::load_or_create(directory, cache_dir.as_ref(), &self.contact).await?;
-        let mut order = account.new_order(domains.clone()).await?;
-        loop {
-            order = match order {
-                Order::Pending {
-                    authorizations,
-                    finalize,
-                } => {
-                    let auth_futures = authorizations
-                        .iter()
-                        .map(|url| self.authorize(&account, url));
-                    try_join_all(auth_futures).await?;
-                    log::info!("completed all authorizations");
-                    Order::Ready { finalize }
-                }
-                Order::Ready { finalize } => {
-                    log::info!("sending csr");
-                    let csr = cert.serialize_request_der()?;
-                    account.finalize(finalize, csr).await?
-                }
-                Order::Valid { certificate } => {
-                    log::info!("download certificate");
-                    let acme_cert_pem = account.certificate(certificate).await?;
-                    let pems = pem::parse_many(&acme_cert_pem);
-                    let cert_chain = pems
-                        .into_iter()
-                        .map(|p| RustlsCertificate(p.contents))
-                        .collect();
-                    let cert_key = CertifiedKey::new(cert_chain, Arc::new(pk));
-                    self.cert_key.lock().unwrap().replace(cert_key.clone());
-                    let pk_pem = cert.serialize_private_key_pem();
-                    Self::save_certified_key(cache_dir, file_name, pk_pem, acme_cert_pem).await;
-                    return Ok(());
-                }
-                Order::Invalid => return Err(OrderError::BadOrder(order)),
-            }
-        }
-    }
-    fn duration_until_renewal_attempt(&self, err_cnt: usize) -> Duration {
-        let valid_until = match self.cert_key.lock().unwrap().clone() {
-            None => 0,
-            Some(cert_key) => match cert_key.cert.first() {
-                Some(cert) => match parse_x509_certificate(cert.0.as_slice()) {
-                    Ok((_, cert)) => cert.validity().not_after.timestamp(),
-                    Err(err) => {
-                        log::error!("could not parse certificate: {}", err);
-                        0
-                    }
-                },
-                None => 0,
-            },
-        };
-        let valid_secs = (valid_until - Utc::now().timestamp()).max(0);
-        let wait_secs = Duration::from_secs(valid_secs as u64 / 2);
-        match err_cnt {
-            0 => wait_secs,
-            err_cnt => wait_secs.max(Duration::from_secs(1 << err_cnt)),
         }
     }
     async fn load_certified_key<P: AsRef<Path>>(
@@ -219,38 +157,6 @@ impl ResolvesServerCertUsingAcme {
         let hash = base64::encode_config(ctx.finish(), base64::URL_SAFE_NO_PAD);
         format!("cached_cert_{}", hash)
     }
-    async fn authorize(&self, account: &Account, url: &String) -> Result<(), OrderError> {
-        let (domain, challenge_url) = match account.auth(url).await? {
-            Auth::Pending {
-                identifier,
-                challenges,
-            } => {
-                let Identifier::Dns(domain) = identifier;
-                log::info!("trigger challenge for {}", &domain);
-                let (challenge, auth_key) = account.tls_alpn_01(&challenges, domain.clone())?;
-                self.auth_keys
-                    .lock()
-                    .unwrap()
-                    .insert(domain.clone(), auth_key);
-                account.challenge(&challenge.url).await?;
-                (domain, challenge.url.clone())
-            }
-            Auth::Valid => return Ok(()),
-            auth => return Err(OrderError::BadAuth(auth)),
-        };
-        for i in 0u64..5 {
-            sleep(Duration::from_secs(1 << i)).await;
-            match account.auth(url).await? {
-                Auth::Pending { .. } => {
-                    log::info!("authorization for {} still pending", &domain);
-                    account.challenge(&challenge_url).await?
-                }
-                Auth::Valid => return Ok(()),
-                auth => return Err(OrderError::BadAuth(auth)),
-            }
-        }
-        Err(OrderError::TooManyAttemptsAuth(domain))
-    }
 }
 
 impl ResolvesServerCert for ResolvesServerCertUsingAcme {
@@ -271,20 +177,4 @@ impl ResolvesServerCert for ResolvesServerCertUsingAcme {
             self.cert_key.lock().unwrap().clone()
         }
     }
-}
-
-#[derive(Error, Debug)]
-enum OrderError {
-    #[error("acme error: {0}")]
-    Acme(#[from] AcmeError),
-    #[error("could not parse pem: {0}")]
-    Pem(#[from] PemError),
-    #[error("certificate generation error: {0}")]
-    Rcgen(#[from] RcgenError),
-    #[error("bad order object: {0:?}")]
-    BadOrder(Order),
-    #[error("bad auth object: {0:?}")]
-    BadAuth(Auth),
-    #[error("authorization for {0} failed too many times")]
-    TooManyAttemptsAuth(String),
 }
