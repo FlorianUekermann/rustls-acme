@@ -14,7 +14,7 @@
 //!
 //! ## High-level API
 //!
-//! The high-level API consinsts of a single function: bind_listen_serve, which takes care of
+//! The high-level API consists of a single function: bind_listen_serve, which takes care of
 //! aquisition and renewal of signed certificates as well as accepting TLS connections and handing
 //! over the resulting TLS stream to a user provided handler function.
 //!
