@@ -77,7 +77,7 @@ impl Account {
             &directory.new_account,
             &payload,
         )?;
-        let mut response = https(&directory.new_account, Method::Post, Some(body)).await?;
+        let response = https(&directory.new_account, Method::Post, Some(body)).await?;
         let kid = get_header(&response, "Location")?;
         Ok(Account {
             key_pair,
