@@ -53,7 +53,7 @@ fn main() {
 }
 
 async fn serve(acceptor: TlsAcceptor, port: u16) -> Result<(), Box<dyn Error>> {
-    let listener = TcpListener::bind(("0.0.0.0", port)).await?;
+    let listener = TcpListener::bind(("::", port)).await?;
     while let Some(tcp) = listener.incoming().next().await {
         let acceptor = acceptor.clone();
         task::spawn(async move {
