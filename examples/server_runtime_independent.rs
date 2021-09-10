@@ -48,12 +48,12 @@ fn main() {
     });
 
     task::block_on(async move {
-        serve(acceptor).await.unwrap();
+        serve(acceptor, opt.port).await.unwrap();
     });
 }
 
-async fn serve(acceptor: TlsAcceptor) -> Result<(), Box<dyn Error>> {
-    let listener = TcpListener::bind("0.0.0.0:443").await?;
+async fn serve(acceptor: TlsAcceptor, port: u16) -> Result<(), Box<dyn Error>> {
+    let listener = TcpListener::bind(("0.0.0.0", port)).await?;
     while let Some(tcp) = listener.incoming().next().await {
         let acceptor = acceptor.clone();
         task::spawn(async move {
