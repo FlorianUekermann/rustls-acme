@@ -46,8 +46,7 @@ where
         let acceptor = acceptor.clone();
         spawn(async move {
             match acceptor.accept(tcp).await {
-                Ok(Some(tls)) => f(tls).await,
-                Ok(None) => {}
+                Ok(tls) => f(tls).await,
                 Err(err) => log::error!("tls accept error: {:?}", err),
             }
         });

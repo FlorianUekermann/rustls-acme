@@ -57,9 +57,8 @@ async fn serve(acceptor: TlsAcceptor, port: u16) -> Result<(), Box<dyn Error>> {
     while let Some(tcp) = listener.incoming().next().await {
         let acceptor = acceptor.clone();
         task::spawn(async move {
-            if let Some(mut tls) = acceptor.accept(tcp.unwrap()).await.unwrap() {
-                tls.write_all(HELLO).await.unwrap();
-            }
+            let mut tls = acceptor.accept(tcp.unwrap()).await.unwrap();
+            tls.write_all(HELLO).await.unwrap();
         });
     }
     Ok(())
