@@ -1,6 +1,9 @@
+use async_rustls::rustls::Session;
+use async_rustls::TlsAcceptor;
 use clap::Parser;
 use futures::AsyncWriteExt;
 use futures::StreamExt;
+use rustls_acme::acme::ACME_TLS_ALPN_NAME;
 use rustls_acme::caches::DirCache;
 use rustls_acme::AcmeConfig;
 use smol::net::TcpListener;
@@ -39,21 +42,36 @@ async fn main() {
     let config = config
         .contact(args.contact.clone())
         .cache_option(args.cache.clone().map(DirCache::new));
+    let mut state = config.state();
+    let acceptor = state.acceptor();
 
-    let tcp_listener = TcpListener::bind(format!("[::]:{}", args.port))
-        .await
-        .unwrap();
-    let mut tls_incoming = config.incoming(tcp_listener.incoming());
+    spawn(async move {
+        loop {
+            match state.next().await.unwrap() {
+                Ok(ok) => log::info!("event: {:?}", ok),
+                Err(err) => log::error!("error: {:?}", err),
+            }
+        }
+    })
+    .detach();
 
-    while let Some(tls) = tls_incoming.next().await {
-        let mut tls = tls.unwrap();
+    serve(acceptor, args.port).await;
+}
+
+async fn serve(acceptor: TlsAcceptor, port: u16) {
+    let listener = TcpListener::bind(format!("[::]:{}", port)).await.unwrap();
+    while let Some(tcp) = listener.incoming().next().await {
+        let acceptor = acceptor.clone();
         spawn(async move {
-            tls.write_all(HELLO).await.unwrap();
+            let mut tls = acceptor.accept(tcp.unwrap()).await.unwrap();
+            match tls.get_ref().1.get_alpn_protocol() {
+                Some(ACME_TLS_ALPN_NAME) => log::info!("received TLS-ALPN-01 validation request"),
+                _ => tls.write_all(HELLO).await.unwrap(),
+            }
             tls.close().await.unwrap();
         })
-        .detach()
+        .detach();
     }
-    unreachable!()
 }
 
 const HELLO: &'static [u8] = br#"HTTP/1.1 200 OK

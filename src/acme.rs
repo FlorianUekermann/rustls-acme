@@ -1,15 +1,13 @@
-use crate::*;
+use crate::https_helper::{https, HttpsRequestError};
+use crate::jose::{key_authorization_sha256, sign, JoseError};
 use async_rustls::rustls::sign::{any_ecdsa_type, CertifiedKey};
 use async_rustls::rustls::PrivateKey;
-use async_std::fs::create_dir_all;
-use async_std::path::{Path, PathBuf};
 use base64::URL_SAFE_NO_PAD;
 use http_types::{Method, Response};
 use rcgen::{Certificate, CustomExtension, RcgenError, PKCS_ECDSA_P256_SHA256};
-use ring::digest::{Context, SHA256};
 use ring::error::{KeyRejected, Unspecified};
 use ring::rand::SystemRandom;
-use ring::signature::{EcdsaKeyPair, ECDSA_P256_SHA256_FIXED_SIGNING};
+use ring::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm, ECDSA_P256_SHA256_FIXED_SIGNING};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
@@ -25,46 +23,36 @@ pub const ACME_TLS_ALPN_NAME: &[u8] = b"acme-tls/1";
 pub struct Account {
     pub key_pair: EcdsaKeyPair,
     pub directory: Directory,
-    pub cache: Option<PathBuf>,
     pub kid: String,
 }
 
+static ALG: &'static EcdsaSigningAlgorithm = &ECDSA_P256_SHA256_FIXED_SIGNING;
+
 impl Account {
-    pub async fn load_or_create<'a, P, S, I>(
-        directory: Directory,
-        cache_dir: Option<P>,
-        contact: I,
-    ) -> Result<Self, AcmeError>
+    pub fn generate_key_pair() -> Vec<u8> {
+        let rng = SystemRandom::new();
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(ALG, &rng).unwrap();
+        pkcs8.as_ref().to_vec()
+    }
+    pub async fn create<'a, S, I>(directory: Directory, contact: I) -> Result<Self, AcmeError>
     where
-        P: AsRef<Path>,
         S: AsRef<str> + 'a,
         I: IntoIterator<Item = &'a S>,
     {
-        let alg = &ECDSA_P256_SHA256_FIXED_SIGNING;
-        if let Some(cache_dir) = &cache_dir {
-            create_dir_all(cache_dir).await?;
-        }
+        let key_pair = Self::generate_key_pair();
+        Ok(Self::create_with_keypair(directory, contact, &key_pair).await?)
+    }
+    pub async fn create_with_keypair<'a, S, I>(
+        directory: Directory,
+        contact: I,
+        key_pair: &[u8],
+    ) -> Result<Self, AcmeError>
+    where
+        S: AsRef<str> + 'a,
+        I: IntoIterator<Item = &'a S>,
+    {
+        let key_pair = EcdsaKeyPair::from_pkcs8(ALG, key_pair)?;
         let contact: Vec<&'a str> = contact.into_iter().map(AsRef::<str>::as_ref).collect();
-        let file = Self::cached_key_file_name(&contact);
-        let pkcs8 = match &cache_dir {
-            Some(cache_dir) => read_if_exist(cache_dir, &file).await?,
-            None => None,
-        };
-        let key_pair = match pkcs8 {
-            Some(pkcs8) => {
-                log::info!("found cached account key");
-                EcdsaKeyPair::from_pkcs8(alg, &pkcs8)?
-            }
-            None => {
-                log::info!("creating a new account key");
-                let rng = SystemRandom::new();
-                let pkcs8 = EcdsaKeyPair::generate_pkcs8(alg, &rng)?;
-                if let Some(cache_dir) = &cache_dir {
-                    write(cache_dir, &file, pkcs8.as_ref()).await?;
-                }
-                EcdsaKeyPair::from_pkcs8(alg, pkcs8.as_ref())?
-            }
-        };
         let payload = json!({
             "termsOfServiceAgreed": true,
             "contact": contact,
@@ -83,17 +71,7 @@ impl Account {
             key_pair,
             kid,
             directory,
-            cache: cache_dir.map(|p| p.as_ref().to_path_buf()),
         })
-    }
-    fn cached_key_file_name(contact: &Vec<&str>) -> String {
-        let mut ctx = Context::new(&SHA256);
-        for el in contact {
-            ctx.update(el.as_ref());
-            ctx.update(&[0])
-        }
-        let hash = base64::encode_config(ctx.finish(), base64::URL_SAFE_NO_PAD);
-        format!("cached_account_{}", hash)
     }
     async fn request(&self, url: impl AsRef<str>, payload: &str) -> Result<String, AcmeError> {
         let body = sign(

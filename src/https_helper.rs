@@ -1,9 +1,9 @@
 use async_rustls::rustls::ClientConfig;
 use async_rustls::webpki::{DNSNameRef, InvalidDNSNameError};
 use async_rustls::TlsConnector;
-use async_std::io;
-use async_std::net::TcpStream;
 use http_types::{Method, Request, Response, StatusCode};
+use smol::net::TcpStream;
+use std::io;
 use std::sync::Arc;
 use thiserror::Error;
 use webpki_roots::TLS_SERVER_ROOTS;
