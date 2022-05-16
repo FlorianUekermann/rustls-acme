@@ -5,7 +5,7 @@ use async_rustls::rustls::sign::{any_ecdsa_type, CertifiedKey};
 use async_rustls::rustls::PrivateKey;
 use async_rustls::rustls::{Certificate as RustlsCertificate, NoClientAuth, ServerConfig};
 use async_rustls::TlsAcceptor;
-use chrono::{TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use futures::future::try_join_all;
 use futures::prelude::*;
 use futures::ready;
@@ -69,8 +69,6 @@ pub enum EventError<EC: Debug, EA: Debug> {
 pub enum OrderError {
     #[error("acme error: {0}")]
     Acme(#[from] AcmeError),
-    #[error("could not parse cert: {0}")]
-    CertParse(#[from] CertParseError),
     #[error("certificate generation error: {0}")]
     Rcgen(#[from] RcgenError),
     #[error("bad order object: {0:?}")]
@@ -85,6 +83,8 @@ pub enum OrderError {
 pub enum CertParseError {
     #[error("X509 parsing error: {0}")]
     X509(#[from] x509_parser::nom::Err<x509_parser::error::X509Error>),
+    #[error("expected 2 or more pem, got: {0}")]
+    Pem(#[from] pem::PemError),
     #[error("expected 2 or more pem, got: {0}")]
     TooFewPem(usize),
     #[error("unsupported private key type")]
@@ -138,28 +138,37 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             wait: None,
         }
     }
-    fn process_cert(&mut self, pem: Vec<u8>, cached: bool) -> Event<EC, EA> {
-        let mut pems = pem::parse_many(&pem);
+    fn parse_cert(pem: &[u8]) -> Result<(CertifiedKey, DateTime<Utc>), CertParseError> {
+        let mut pems = pem::parse_many(&pem)?;
         if pems.len() < 2 {
-            return Err(EventError::NewCertParse(CertParseError::TooFewPem(
-                pems.len(),
-            )));
+            return Err(CertParseError::TooFewPem(pems.len()));
         }
         let pk = match any_ecdsa_type(&PrivateKey(pems.remove(0).contents)) {
             Ok(pk) => pk,
-            Err(_) => return Err(EventError::NewCertParse(CertParseError::InvalidPrivateKey)),
+            Err(_) => return Err(CertParseError::InvalidPrivateKey),
         };
         let cert_chain: Vec<RustlsCertificate> = pems
             .into_iter()
             .map(|p| RustlsCertificate(p.contents))
             .collect();
-        match parse_x509_certificate(cert_chain[0].0.as_slice()) {
-            Ok((_, cert)) => {
-                self.valid_until = Utc.timestamp(cert.validity().not_after.timestamp(), 0);
-            }
-            Err(err) => return Err(EventError::NewCertParse(CertParseError::X509(err))),
+        let valid_until = match parse_x509_certificate(cert_chain[0].0.as_slice()) {
+            Ok((_, cert)) => Utc.timestamp(cert.validity().not_after.timestamp(), 0),
+            Err(err) => return Err(CertParseError::X509(err)),
         };
         let cert = CertifiedKey::new(cert_chain, Arc::new(pk));
+        Ok((cert, valid_until))
+    }
+    fn process_cert(&mut self, pem: Vec<u8>, cached: bool) -> Event<EC, EA> {
+        let (cert, valid_until) = match (Self::parse_cert(&pem), cached) {
+            (Ok(r), _) => r,
+            (Err(err), cached) => {
+                return match cached {
+                    true => Err(EventError::CachedCertParse(err)),
+                    false => Err(EventError::NewCertParse(err)),
+                }
+            }
+        };
+        self.valid_until = valid_until;
         self.resolver.set_cert(cert);
         let wait_duration = (self.valid_until - Utc::now())
             .max(chrono::Duration::zero())
