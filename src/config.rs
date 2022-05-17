@@ -6,40 +6,41 @@ use futures::{AsyncRead, AsyncWrite, Stream};
 use std::convert::Infallible;
 use std::fmt::Debug;
 
-/// See [AcmeConfig].
-pub type AcmeBuilder = AcmeConfig<Infallible, Infallible>;
-
-pub struct AcmeConfig<EC: Debug = Infallible, EA: Debug = EC> {
+/// Configuration for an ACME resolver.
+///
+/// The type parameters represent the error types for the certificate cache and account cache.
+pub struct AcmeConfig<EC: Debug, EA: Debug = EC> {
     pub(crate) directory_url: String,
     pub(crate) domains: Vec<String>,
     pub(crate) contact: Vec<String>,
     pub(crate) cache: Box<dyn Cache<EC = EC, EA = EA>>,
 }
 
-impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
+impl AcmeConfig<Infallible, Infallible> {
     /// Creates a new [AcmeConfig] instance.
     ///
-    /// In most circumstances it is more ergonomic to call this function using the [AcmeBuilder]
-    /// type alias, due to limited support for type parameter inference in Rust (see
-    /// [RFC213](https://github.com/rust-lang/rfcs/blob/master/text/0213-defaulted-type-params.md)).
+    /// The new `AcmeConfig` instance will initially have no cache, and its type parameters for
+    /// error types will be `Infallible` since the cache cannot return an error. The methods to set
+    /// a cache will change the error types to match those returned by the supplied cache.
     ///
     /// ```rust
-    /// # use rustls_acme::AcmeBuilder;
-    /// # fn main() {
-    /// # use rustls_acme::caches::DirCache;
-    /// let config = AcmeBuilder::new(vec!["example.com".to_string()])
+    /// use rustls_acme::AcmeConfig;
+    /// use rustls_acme::caches::DirCache;
+    ///
+    /// let config = AcmeConfig::new(vec!["example.com".to_string()])
     ///     .cache(DirCache::new("./rustls_acme_cache"));
-    /// #
-    /// # }
     /// ```
-    pub fn new(domains: Vec<String>) -> AcmeConfig<EC, EA> {
+    pub fn new(domains: Vec<String>) -> Self {
         AcmeConfig {
             directory_url: LETS_ENCRYPT_STAGING_DIRECTORY.to_string(),
             domains,
             contact: vec![],
-            cache: Box::new(NoCache::<EC, EA>::default()),
+            cache: Box::new(NoCache::<Infallible, Infallible>::default()),
         }
     }
+}
+
+impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
     pub fn directory(mut self, directory_url: impl ToString) -> Self {
         self.directory_url = directory_url.to_string();
         self

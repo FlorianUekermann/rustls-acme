@@ -5,7 +5,7 @@ use futures::AsyncWriteExt;
 use futures::StreamExt;
 use rustls_acme::acme::ACME_TLS_ALPN_NAME;
 use rustls_acme::caches::DirCache;
-use rustls_acme::AcmeBuilder;
+use rustls_acme::AcmeConfig;
 use smol::net::TcpListener;
 use smol::spawn;
 use std::path::PathBuf;
@@ -38,7 +38,7 @@ async fn main() {
     simple_logger::init_with_level(log::Level::Info).unwrap();
     let args = Args::parse();
 
-    let mut state = AcmeBuilder::new(args.domains.clone())
+    let mut state = AcmeConfig::new(args.domains.clone())
         .contact(args.email.iter().map(|e| format!("mailto:{}",e)).collect())
         .cache_option(args.cache.clone().map(DirCache::new))
         .state();

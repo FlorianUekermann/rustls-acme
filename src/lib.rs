@@ -25,7 +25,7 @@
 //!
 //! ```rust,no_run
 //! use futures::prelude::*;
-//! use rustls_acme::{AcmeBuilder, caches::DirCache};
+//! use rustls_acme::{AcmeConfig, caches::DirCache};
 //!
 //! #[smol_potat::main]
 //! async fn main() {
@@ -33,7 +33,7 @@
 //!
 //!     let tcp_listener = smol::net::TcpListener::bind("[::]:443").await.unwrap();
 //!
-//!     let mut tls_incoming = AcmeBuilder::new(vec!["example.com".to_string()])
+//!     let mut tls_incoming = AcmeConfig::new(vec!["example.com".to_string()])
 //!         .contact_push("mailto:admin@example.com")
 //!         .cache(DirCache::new("./rustls_acme_cache"))
 //!         .incoming(tcp_listener.incoming());
