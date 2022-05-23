@@ -72,8 +72,8 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
     /// Provide a contact for the account.
     ///
     /// Note that an email address must include a `mailto:` prefix.
-    pub fn contact_push(mut self, contact: String) -> Self {
-        self.contact.push(contact);
+    pub fn contact_push(mut self, contact: impl ToString) -> Self {
+        self.contact.push(contact.to_string());
         self
     }
 

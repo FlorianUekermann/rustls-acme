@@ -15,10 +15,10 @@ struct Args {
 
     /// Contact info
     #[clap(short)]
-    contact: Vec<String>,
+    email: Vec<String>,
 
     /// Cache directory
-    #[clap(long, parse(from_os_str))]
+    #[clap(short, parse(from_os_str))]
     cache: Option<PathBuf>,
 
     /// Use Let's Encrypt production environment
@@ -40,7 +40,7 @@ async fn main() {
         .unwrap();
 
     let mut tls_incoming = AcmeBuilder::new(args.domains.clone())
-        .contact(args.contact.clone())
+        .contact(args.email.iter().map(|e| format!("mailto:{}",e)).collect())
         .cache_option(args.cache.clone().map(DirCache::new))
         .incoming(tcp_listener.incoming());
 
