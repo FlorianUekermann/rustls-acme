@@ -15,6 +15,10 @@ impl<T: Send + Sync> BoxedErrCache<T> {
     }
 }
 
+fn box_err(e: impl Debug + 'static) -> Box<dyn Debug> {
+    Box::new(e)
+}
+
 #[async_trait]
 impl<T: CertCache> CertCache for BoxedErrCache<T>
 where
@@ -26,10 +30,10 @@ where
         domains: &[String],
         directory_url: &str,
     ) -> Result<Option<Vec<u8>>, Self::EC> {
-        match self.inner.load_cert(domains, directory_url).await {
-            Ok(ok) => Ok(ok),
-            Err(err) => Err(Box::new(err)),
-        }
+        self.inner
+            .load_cert(domains, directory_url)
+            .await
+            .map_err(box_err)
     }
 
     async fn store_cert(
@@ -38,10 +42,10 @@ where
         directory_url: &str,
         cert: &[u8],
     ) -> Result<(), Self::EC> {
-        match self.inner.store_cert(domains, directory_url, cert).await {
-            Ok(ok) => Ok(ok),
-            Err(err) => Err(Box::new(err)),
-        }
+        self.inner
+            .store_cert(domains, directory_url, cert)
+            .await
+            .map_err(box_err)
     }
 }
 
@@ -52,16 +56,13 @@ where
 {
     type EA = Box<dyn Debug>;
     async fn load_account(&self, contact: &[String]) -> Result<Option<Vec<u8>>, Self::EA> {
-        match self.inner.load_account(contact).await {
-            Ok(ok) => Ok(ok),
-            Err(err) => Err(Box::new(err)),
-        }
+        self.inner.load_account(contact).await.map_err(box_err)
     }
 
     async fn store_account(&self, contact: &[String], account: &[u8]) -> Result<(), Self::EA> {
-        match self.inner.store_account(contact, account).await {
-            Ok(ok) => Ok(ok),
-            Err(err) => Err(Box::new(err)),
-        }
+        self.inner
+            .store_account(contact, account)
+            .await
+            .map_err(box_err)
     }
 }
