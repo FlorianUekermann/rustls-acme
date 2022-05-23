@@ -104,8 +104,7 @@
 //! [async-rustls](https://github.com/smol-rs/async-rustls),
 //! and many others.
 //!
-//! [Josh Triplett](https://github.com/joshtriplett) provided valuable notes on API design and other
-//! feedback.
+//! Thanks to [Josh Triplett](https://github.com/joshtriplett) for contributions and feedback.
 
 pub mod acme;
 mod cache;
