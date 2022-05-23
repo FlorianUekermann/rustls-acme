@@ -130,7 +130,12 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             })),
             load_account: Some(Box::pin({
                 let config = config.clone();
-                async move { config.cache.load_account(&config.contact).await }
+                async move {
+                    config
+                        .cache
+                        .load_account(&config.contact, &config.directory_url)
+                        .await
+                }
             })),
             order: None,
             valid_until: Utc.timestamp(0, 0),
@@ -338,7 +343,11 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                     self.early_action = Some(Box::pin(async move {
                         match config
                             .cache
-                            .store_account(&config.contact, &account_key_clone)
+                            .store_account(
+                                &config.contact,
+                                &config.directory_url,
+                                &account_key_clone,
+                            )
                             .await
                         {
                             Ok(()) => Ok(EventOk::AccountCacheStore),
