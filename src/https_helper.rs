@@ -1,7 +1,7 @@
 use async_rustls::rustls::ClientConfig;
 use async_rustls::webpki::{DNSNameRef, InvalidDNSNameError};
 use async_rustls::TlsConnector;
-use http_types::{Method, Request, Response, StatusCode};
+use http_types::{Method, Request, Response};
 use smol::net::TcpStream;
 use std::io;
 use std::sync::Arc;
@@ -35,9 +35,13 @@ pub(crate) async fn https(
     let tls = TlsConnector::from(Arc::new(config))
         .connect(domain, tcp)
         .await?;
-    let response = async_h1::connect(tls, request).await?;
-    if !response.status().is_success() {
-        return Err(HttpsRequestError::Non2xxStatus(response.status()));
+    let mut response = async_h1::connect(tls, request).await?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(HttpsRequestError::Non2xxStatus {
+            status_code: status.into(),
+            body: response.body_string().await?,
+        });
     }
     Ok(response)
 }
@@ -50,8 +54,8 @@ pub enum HttpsRequestError {
     InvalidDNSName(#[from] InvalidDNSNameError),
     #[error("http error: {0:?}")]
     Http(http_types::Error),
-    #[error("non 2xx http status: {0:?}")]
-    Non2xxStatus(StatusCode),
+    #[error("non 2xx http status: {status_code} {body:?}")]
+    Non2xxStatus { status_code: u16, body: String },
     #[error("could not determine host from url")]
     UndefinedHost,
 }
