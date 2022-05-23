@@ -6,6 +6,9 @@ use futures::{AsyncRead, AsyncWrite, Stream};
 use std::convert::Infallible;
 use std::fmt::Debug;
 
+/// See [AcmeConfig].
+pub type AcmeBuilder = AcmeConfig<Infallible, Infallible>;
+
 pub struct AcmeConfig<EC: Debug = Infallible, EA: Debug = EC> {
     pub(crate) directory_url: String,
     pub(crate) domains: Vec<String>,
@@ -14,6 +17,21 @@ pub struct AcmeConfig<EC: Debug = Infallible, EA: Debug = EC> {
 }
 
 impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
+    /// Creates a new [AcmeConfig] instance.
+    ///
+    /// In most circumstances it is more ergonomic to call this function using the [AcmeBuilder]
+    /// type alias, due to limited support for type parameter inference in Rust (see
+    /// [RFC213](https://github.com/rust-lang/rfcs/blob/master/text/0213-defaulted-type-params.md)).
+    ///
+    /// ```rust
+    /// # use rustls_acme::AcmeBuilder;
+    /// # fn main() {
+    /// # use rustls_acme::caches::DirCache;
+    /// let config = AcmeBuilder::new(vec!["example.com".to_string()])
+    ///     .cache(DirCache::new("./rustls_acme_cache"));
+    /// #
+    /// # }
+    /// ```
     pub fn new(domains: Vec<String>) -> AcmeConfig<EC, EA> {
         AcmeConfig {
             directory_url: LETS_ENCRYPT_STAGING_DIRECTORY.to_string(),

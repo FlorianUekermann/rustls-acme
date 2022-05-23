@@ -25,17 +25,17 @@
 //!
 //! ```rust,no_run
 //! use futures::prelude::*;
-//! use rustls_acme::{AcmeConfig, caches::DirCache};
+//! use rustls_acme::{AcmeBuilder, caches::DirCache};
 //!
 //! #[smol_potat::main]
 //! async fn main() {
 //!     simple_logger::init_with_level(log::Level::Info).unwrap();
 //!
-//!     let config: AcmeConfig = AcmeConfig::new(vec!["example.com".to_string()]);
-//!     let config = config.cache(DirCache::new("./rustls_acme_cache"));
-//!
 //!     let tcp_listener = smol::net::TcpListener::bind("[::]:443").await.unwrap();
-//!     let mut tls_incoming = config.incoming(tcp_listener.incoming());
+//!
+//!     let mut tls_incoming = AcmeBuilder::new(vec!["example.com".to_string()])
+//!         .cache(DirCache::new("./rustls_acme_cache"))
+//!         .incoming(tcp_listener.incoming());
 //!
 //!     while let Some(tls) = tls_incoming.next().await {
 //!         let mut tls = tls.unwrap();

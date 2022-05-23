@@ -5,7 +5,7 @@ use futures::AsyncWriteExt;
 use futures::StreamExt;
 use rustls_acme::acme::ACME_TLS_ALPN_NAME;
 use rustls_acme::caches::DirCache;
-use rustls_acme::AcmeConfig;
+use rustls_acme::AcmeBuilder;
 use smol::net::TcpListener;
 use smol::spawn;
 use std::path::PathBuf;
@@ -38,11 +38,10 @@ async fn main() {
     simple_logger::init_with_level(log::Level::Info).unwrap();
     let args = Args::parse();
 
-    let config: AcmeConfig = AcmeConfig::new(args.domains.clone());
-    let config = config
+    let mut state = AcmeBuilder::new(args.domains.clone())
         .contact(args.contact.clone())
-        .cache_option(args.cache.clone().map(DirCache::new));
-    let mut state = config.state();
+        .cache_option(args.cache.clone().map(DirCache::new))
+        .state();
     let acceptor = state.acceptor();
 
     spawn(async move {
