@@ -34,12 +34,13 @@ impl<P: AsRef<Path> + Send + Sync> DirCache<P> {
         let path = self.inner.as_ref().join(file);
         Ok(smol::fs::write(path, contents).await?)
     }
-    fn cached_account_file_name(contact: &[String]) -> String {
+    fn cached_account_file_name(contact: &[String], directory_url: impl AsRef<str>) -> String {
         let mut ctx = Context::new(&SHA256);
         for el in contact {
             ctx.update(el.as_ref());
             ctx.update(&[0])
         }
+        ctx.update(directory_url.as_ref().as_bytes());
         let hash = base64::encode_config(ctx.finish(), base64::URL_SAFE_NO_PAD);
         format!("cached_account_{}", hash)
     }
@@ -80,13 +81,22 @@ impl<P: AsRef<Path> + Send + Sync> CertCache for DirCache<P> {
 #[async_trait]
 impl<P: AsRef<Path> + Send + Sync> AccountCache for DirCache<P> {
     type EA = std::io::Error;
-    async fn load_account(&self, contact: &[String]) -> Result<Option<Vec<u8>>, Self::EA> {
-        let file_name = Self::cached_account_file_name(&contact);
+    async fn load_account(
+        &self,
+        contact: &[String],
+        directory_url: &str,
+    ) -> Result<Option<Vec<u8>>, Self::EA> {
+        let file_name = Self::cached_account_file_name(&contact, directory_url);
         self.read_if_exist(file_name).await
     }
 
-    async fn store_account(&self, contact: &[String], account: &[u8]) -> Result<(), Self::EA> {
-        let file_name = Self::cached_account_file_name(&contact);
+    async fn store_account(
+        &self,
+        contact: &[String],
+        directory_url: &str,
+        account: &[u8],
+    ) -> Result<(), Self::EA> {
+        let file_name = Self::cached_account_file_name(&contact, directory_url);
         self.write(file_name, account).await
     }
 }

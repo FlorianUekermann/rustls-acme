@@ -25,6 +25,15 @@ pub trait CertCache: Send + Sync {
 #[async_trait]
 pub trait AccountCache: Send + Sync {
     type EA: Debug;
-    async fn load_account(&self, contact: &[String]) -> Result<Option<Vec<u8>>, Self::EA>;
-    async fn store_account(&self, contact: &[String], account: &[u8]) -> Result<(), Self::EA>;
+    async fn load_account(
+        &self,
+        contact: &[String],
+        directory_url: &str,
+    ) -> Result<Option<Vec<u8>>, Self::EA>;
+    async fn store_account(
+        &self,
+        contact: &[String],
+        directory_url: &str,
+        account: &[u8],
+    ) -> Result<(), Self::EA>;
 }

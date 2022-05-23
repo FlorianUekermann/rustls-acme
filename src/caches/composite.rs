@@ -46,11 +46,24 @@ impl<C: CertCache + Send + Sync, A: AccountCache + Send + Sync> AccountCache
     for CompositeCache<C, A>
 {
     type EA = A::EA;
-    async fn load_account(&self, contact: &[String]) -> Result<Option<Vec<u8>>, Self::EA> {
-        self.account_cache.load_account(contact).await
+    async fn load_account(
+        &self,
+        contact: &[String],
+        directory_url: &str,
+    ) -> Result<Option<Vec<u8>>, Self::EA> {
+        self.account_cache
+            .load_account(contact, directory_url)
+            .await
     }
 
-    async fn store_account(&self, contact: &[String], account: &[u8]) -> Result<(), Self::EA> {
-        self.account_cache.store_account(contact, account).await
+    async fn store_account(
+        &self,
+        contact: &[String],
+        directory_url: &str,
+        account: &[u8],
+    ) -> Result<(), Self::EA> {
+        self.account_cache
+            .store_account(contact, directory_url, account)
+            .await
     }
 }
