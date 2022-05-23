@@ -42,14 +42,23 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
         self.domains.push(contact);
         self
     }
+
+    /// Provide a list of contacts for the account.
+    ///
+    /// Note that email addresses must include a `mailto:` prefix.
     pub fn contact(mut self, contact: Vec<String>) -> Self {
         self.contact = contact;
         self
     }
+
+    /// Provide a contact for the account.
+    ///
+    /// Note that an email address must include a `mailto:` prefix.
     pub fn contact_push(mut self, contact: String) -> Self {
         self.contact.push(contact);
         self
     }
+
     pub fn cache<C: 'static + Cache>(self, cache: C) -> AcmeConfig<C::EC, C::EA> {
         AcmeConfig {
             directory_url: self.directory_url,
