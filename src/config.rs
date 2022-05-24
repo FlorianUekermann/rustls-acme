@@ -24,31 +24,29 @@ impl AcmeConfig<Infallible, Infallible> {
     /// a cache will change the error types to match those returned by the supplied cache.
     ///
     /// ```rust
-    /// use rustls_acme::AcmeConfig;
+    /// # use rustls_acme::AcmeConfig;
     /// use rustls_acme::caches::DirCache;
-    ///
-    /// let config = AcmeConfig::new(vec!["example.com".to_string()])
-    ///     .cache(DirCache::new("./rustls_acme_cache"));
+    /// let config = AcmeConfig::new(["example.com"]).cache(DirCache::new("./rustls_acme_cache"));
     /// ```
     ///
     /// Due to limited support for type parameter inference in Rust (see
     /// [RFC213](https://github.com/rust-lang/rfcs/blob/master/text/0213-defaulted-type-params.md)),
     /// [AcmeConfig::new] is not (yet) generic over the [AcmeConfig]'s type parameters.
-    /// Use [NoCache] to create an instance of [AcmeConfig] with particular type parameters.
+    /// An uncached instance of [AcmeConfig] with particular type parameters can be created using
+    /// [NoCache].
     ///
     /// ```rust
     /// # use rustls_acme::AcmeConfig;
     /// use rustls_acme::caches::NoCache;
     /// # type EC = std::io::Error;
     /// # type EA = EC;
-    /// let config: AcmeConfig<EC, EA> = AcmeConfig::new(vec!["example.com".to_string()])
-    ///     .cache(NoCache::new());
+    /// let config: AcmeConfig<EC, EA> = AcmeConfig::new(["example.com"]).cache(NoCache::new());
     /// ```
     ///
-    pub fn new(domains: Vec<String>) -> Self {
+    pub fn new(domains: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
         AcmeConfig {
-            directory_url: LETS_ENCRYPT_STAGING_DIRECTORY.to_string(),
-            domains,
+            directory_url: LETS_ENCRYPT_STAGING_DIRECTORY.into(),
+            domains: domains.into_iter().map(|s| s.as_ref().into()).collect(),
             contact: vec![],
             cache: Box::new(NoCache::new()),
         }
@@ -56,8 +54,8 @@ impl AcmeConfig<Infallible, Infallible> {
 }
 
 impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
-    pub fn directory(mut self, directory_url: impl ToString) -> Self {
-        self.directory_url = directory_url.to_string();
+    pub fn directory(mut self, directory_url: impl AsRef<str>) -> Self {
+        self.directory_url = directory_url.as_ref().into();
         self
     }
     pub fn directory_lets_encrypt(mut self, production: bool) -> Self {
@@ -65,31 +63,31 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
             true => LETS_ENCRYPT_PRODUCTION_DIRECTORY,
             false => LETS_ENCRYPT_STAGING_DIRECTORY,
         }
-        .to_string();
+        .into();
         self
     }
-    pub fn domains(mut self, contact: Vec<String>) -> Self {
-        self.domains = contact;
+    pub fn domains(mut self, contact: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
+        self.domains = contact.into_iter().map(|s| s.as_ref().into()).collect();
         self
     }
-    pub fn domains_push(mut self, contact: String) -> Self {
-        self.domains.push(contact);
+    pub fn domains_push(mut self, contact: impl AsRef<str>) -> Self {
+        self.domains.push(contact.as_ref().into());
         self
     }
 
     /// Provide a list of contacts for the account.
     ///
     /// Note that email addresses must include a `mailto:` prefix.
-    pub fn contact(mut self, contact: Vec<String>) -> Self {
-        self.contact = contact;
+    pub fn contact(mut self, contact: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
+        self.contact = contact.into_iter().map(|s| s.as_ref().into()).collect();
         self
     }
 
     /// Provide a contact for the account.
     ///
     /// Note that an email address must include a `mailto:` prefix.
-    pub fn contact_push(mut self, contact: impl ToString) -> Self {
-        self.contact.push(contact.to_string());
+    pub fn contact_push(mut self, contact: impl AsRef<str>) -> Self {
+        self.contact.push(contact.as_ref().into());
         self
     }
 

@@ -33,7 +33,7 @@
 //!
 //!     let tcp_listener = smol::net::TcpListener::bind("[::]:443").await.unwrap();
 //!
-//!     let mut tls_incoming = AcmeConfig::new(vec!["example.com".to_string()])
+//!     let mut tls_incoming = AcmeConfig::new(["example.com"])
 //!         .contact_push("mailto:admin@example.com")
 //!         .cache(DirCache::new("./rustls_acme_cache"))
 //!         .incoming(tcp_listener.incoming());

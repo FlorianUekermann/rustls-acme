@@ -41,7 +41,7 @@ impl ResolvesServerCert for ResolvesServerCertAcme {
                 }
                 Some(domain) => {
                     let domain = domain.to_owned();
-                    let domain: String = AsRef::<str>::as_ref(&domain).to_string();
+                    let domain: String = AsRef::<str>::as_ref(&domain).into();
                     self.inner.lock().unwrap().auth_keys.get(&domain).cloned()
                 }
             }
