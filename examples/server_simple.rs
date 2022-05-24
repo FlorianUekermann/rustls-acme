@@ -2,7 +2,7 @@ use clap::Parser;
 use futures::AsyncWriteExt;
 use futures::StreamExt;
 use rustls_acme::caches::DirCache;
-use rustls_acme::AcmeBuilder;
+use rustls_acme::AcmeConfig;
 use smol::net::TcpListener;
 use smol::spawn;
 use std::path::PathBuf;
@@ -39,7 +39,7 @@ async fn main() {
         .await
         .unwrap();
 
-    let mut tls_incoming = AcmeBuilder::new(args.domains.clone())
+    let mut tls_incoming = AcmeConfig::new(args.domains.clone())
         .contact(args.email.iter().map(|e| format!("mailto:{}",e)).collect())
         .cache_option(args.cache.clone().map(DirCache::new))
         .incoming(tcp_listener.incoming());
