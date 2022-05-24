@@ -53,16 +53,15 @@ pub enum HttpsRequestError {
     #[error("invalid dns name: {0:?}")]
     InvalidDNSName(#[from] InvalidDNSNameError),
     #[error("http error: {0:?}")]
-    Http(http_types::Error),
+    Http(Box<dyn std::error::Error + Send + Sync + 'static>),
     #[error("non 2xx http status: {status_code} {body:?}")]
     Non2xxStatus { status_code: u16, body: String },
     #[error("could not determine host from url")]
     UndefinedHost,
 }
 
-// TODO: Why does the #[from] annotation not work?
 impl From<http_types::Error> for HttpsRequestError {
     fn from(e: http_types::Error) -> Self {
-        Self::Http(e)
+        Self::Http(e.into_inner().into())
     }
 }
