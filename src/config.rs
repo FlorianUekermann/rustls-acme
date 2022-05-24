@@ -19,7 +19,7 @@ pub struct AcmeConfig<EC: Debug, EA: Debug = EC> {
 impl AcmeConfig<Infallible, Infallible> {
     /// Creates a new [AcmeConfig] instance.
     ///
-    /// The new `AcmeConfig` instance will initially have no cache, and its type parameters for
+    /// The new [AcmeConfig] instance will initially have no cache, and its type parameters for
     /// error types will be `Infallible` since the cache cannot return an error. The methods to set
     /// a cache will change the error types to match those returned by the supplied cache.
     ///
@@ -30,12 +30,27 @@ impl AcmeConfig<Infallible, Infallible> {
     /// let config = AcmeConfig::new(vec!["example.com".to_string()])
     ///     .cache(DirCache::new("./rustls_acme_cache"));
     /// ```
+    ///
+    /// Due to limited support for type parameter inference in Rust (see
+    /// [RFC213](https://github.com/rust-lang/rfcs/blob/master/text/0213-defaulted-type-params.md)),
+    /// [AcmeConfig::new] is not (yet) generic over the [AcmeConfig]'s type parameters.
+    /// Use [NoCache] to create an instance of [AcmeConfig] with particular type parameters.
+    ///
+    /// ```rust
+    /// # use rustls_acme::AcmeConfig;
+    /// use rustls_acme::caches::NoCache;
+    /// # type EC = std::io::Error;
+    /// # type EA = EC;
+    /// let config: AcmeConfig<EC, EA> = AcmeConfig::new(vec!["example.com".to_string()])
+    ///     .cache(NoCache::new());
+    /// ```
+    ///
     pub fn new(domains: Vec<String>) -> Self {
         AcmeConfig {
             directory_url: LETS_ENCRYPT_STAGING_DIRECTORY.to_string(),
             domains,
             contact: vec![],
-            cache: Box::new(NoCache::<Infallible, Infallible>::default()),
+            cache: Box::new(NoCache::new()),
         }
     }
 }
@@ -99,7 +114,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
     pub fn cache_option<C: 'static + Cache>(self, cache: Option<C>) -> AcmeConfig<C::EC, C::EA> {
         match cache {
             Some(cache) => self.cache(cache),
-            None => self.cache(NoCache::<C::EC, C::EA>::default()),
+            None => self.cache(NoCache::<C::EC, C::EA>::new()),
         }
     }
     pub fn state(self) -> AcmeState<EC, EA> {

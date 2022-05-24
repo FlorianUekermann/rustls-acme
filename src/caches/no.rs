@@ -5,14 +5,21 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::atomic::AtomicPtr;
 
+/// No-op cache, which does nothing.
+/// ```rust
+/// # use rustls_acme::caches::NoCache;
+/// # type EC = std::io::Error;
+/// # type EA = EC;
+/// let no_cache = NoCache::<EC, EA>::new();
+/// ```
 #[derive(Copy, Clone)]
 pub struct NoCache<EC: Debug = Infallible, EA: Debug = Infallible> {
     _cert_error: PhantomData<AtomicPtr<Box<EC>>>,
     _account_error: PhantomData<AtomicPtr<Box<EA>>>,
 }
 
-impl<EC: Debug, EA: Debug> Default for NoCache<EC, EA> {
-    fn default() -> Self {
+impl<EC: Debug, EA: Debug> NoCache<EC, EA> {
+    pub fn new() -> Self {
         Self {
             _cert_error: Default::default(),
             _account_error: Default::default(),

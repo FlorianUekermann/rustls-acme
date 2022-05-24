@@ -40,7 +40,7 @@ async fn main() {
         .unwrap();
 
     let mut tls_incoming = AcmeConfig::new(args.domains.clone())
-        .contact(args.email.iter().map(|e| format!("mailto:{}",e)).collect())
+        .contact(args.email.iter().map(|e| format!("mailto:{}", e)).collect())
         .cache_option(args.cache.clone().map(DirCache::new))
         .incoming(tcp_listener.incoming());
 
