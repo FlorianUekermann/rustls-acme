@@ -2,8 +2,13 @@
 //! The validation mechanism used is tls-alpn-01, which allows serving acme challenge responses and
 //! regular TLS traffic on the same port.
 //!
-//! The goal is to provide TLS serving and certificate management in one simple function,
-//! in a way that is compatible with [Let's Encrypt](https://letsencrypt.org/).
+//! rustls-acme is designed to be runtime agnostic and as runtime independent as Rust allows at the
+//! moment.
+//! No persistent tasks are spawned under the hood and the certificate acquisition/renewal process
+//! is folded into the streams and futures being polled by the library user.
+//!
+//! The goal is to provide a [Let's Encrypt](https://letsencrypt.org/) compatible TLS serving and
+//! certificate management using a simple and flexible stream based API.
 //!
 //! To use rustls-acme add the following lines to your `Cargo.toml`:
 //!
@@ -14,66 +19,74 @@
 //!
 //! ## High-level API
 //!
-//! The high-level API consists of a single function: bind_listen_serve, which takes care of
-//! aquisition and renewal of signed certificates as well as accepting TLS connections and handing
-//! over the resulting TLS stream to a user provided handler function.
+//! The high-level API consists of a single stream [Incoming] of incoming TLS connection.
+//! Polling the next future of the stream takes care of acquisition and renewal of certificates, as
+//! well as accepting TLS connections, which are handed over to the caller on success.
 //!
-//! ```rust,ignore
-//! use rustls_acme::*;
-//! use async_std::prelude::*;
-//! use simple_logger::SimpleLogger;
+//! ```rust,no_run
+//! use futures::prelude::*;
+//! use rustls_acme::{AcmeConfig, caches::DirCache};
+//!
+//! #[smol_potat::main]
+//! async fn main() {
+//!     simple_logger::init_with_level(log::Level::Info).unwrap();
+//!
+//!     let tcp_listener = smol::net::TcpListener::bind("[::]:443").await.unwrap();
+//!
+//!     let mut tls_incoming = AcmeConfig::new(["example.com"])
+//!         .contact_push("mailto:admin@example.com")
+//!         .cache(DirCache::new("./rustls_acme_cache"))
+//!         .incoming(tcp_listener.incoming());
+//!
+//!     while let Some(tls) = tls_incoming.next().await {
+//!         let mut tls = tls.unwrap();
+//!         smol::spawn(async move {
+//!             tls.write_all(HELLO).await.unwrap();
+//!             tls.close().await.unwrap();
+//!         }).detach();
+//!     }
+//! }
 //!
 //! const HELLO: &'static [u8] = br#"HTTP/1.1 200 OK
 //! Content-Length: 11
 //! Content-Type: text/plain; charset=utf-8
 //!
 //! Hello Tls!"#;
-//!
-//! #[async_std::main]
-//! async fn main() {
-//!     SimpleLogger::new().with_level(log::LevelFilter::Info).init().unwrap();
-//!
-//!     let tls_handler = |mut tls: TlsStream| async move {
-//!         if let Err(err) = tls.write_all(HELLO).await {
-//!             log::error!("{:?}", err);
-//!        }
-//!     };
-//!
-//!     rustls_acme::bind_listen_serve(
-//!         "0.0.0.0:443",
-//!         acme::LETS_ENCRYPT_STAGING_DIRECTORY,
-//!         vec!["example.com".to_string()],
-//!         Some("/tmp/cert_cache"),
-//!         tls_handler,
-//!     ).await.unwrap();
-//! }
 //! ```
 //!
 //! The server_simple example is a "Hello Tls!" server similar to the one above which accepts
 //! domain, port and cache directory parameters.
 //!
-//! Note that all examples use the let's encrypt staging directory. The production directory imposes
-//! strict rate limits, which are easily exhausted accidentally during testing and development.
-//! For testing with the staging directory you may open
-//! `https://<your domain>:<port>` in a browser that allows TLS connection to servers signed by an
-//! untrusted CA (in Firefox click "Advanced..." -> "Accept the Risk and Continue").
+//! Note that all examples use the let's encrypt staging directory by default.
+//! The production directory imposes strict rate limits, which are easily exhausted accidentally
+//! during testing and development.
+//! For testing with the staging directory you may open `https://<your domain>:<port>` in a browser
+//! that allows TLS connection to servers signed by an untrusted CA (in Firefox click "Advanced..."
+//! -> "Accept the Risk and Continue").
 //!
-//! Due to limitations in rustls and the futures ecosystems in Rust at the moment, the simple API
-//! depends on the async-std runtime and spawns a single task at startup. (Ideas how to avoid this
-//! are welcome.)
+//! ## Low-level Rustls API
 //!
-//! ## Lower-level Rustls API
-//!
-//! rustls-acme relies heavily on rustls and async-rustls. In particular, the
-//! rustls::ResolvesServerCert trait is used to allow domain validation and tls serving via a single
-//! tcp listener. See the server_runtime_indendent example on how to use the lower-level API
-//! directly with rustls. This does not use the async-std runtime and allows users to run the
-//! certificate aquisition and renewal task any way they like.
+//! For users who may want to interact with [rustls](async_rustls::rustls) or [async_rustls]
+//! directly, the library exposes the underlying certificate management [AcmeState] as well as a
+//! matching resolver [ResolvesServerCertAcme] which implements the
+//! [rustls::ResolvesServerCert](async_rustls::rustls::ResolvesServerCert) trait.
+//! See the server_low_level example on how to use the low-level API directly with async-rustls.
 //!
 //! ## Account and certificate caching
 //!
 //! A production server using the let's encrypt production directory must implement both account and
 //! certificate caching to avoid exhausting the let's encrypt API rate limits.
+//! A file based cache using a cache directory is provided by [caches::DirCache].
+//! Caches backed by other persistence layers may be implemented using the [Cache] trait,
+//! or the underlying [CertCache], [AccountCache] traits (contributions welcome).
+//! [caches::CompositeCache] provides a wrapper to combine two implementors of [CertCache] and
+//! [AccountCache] into a single [Cache].
+//!
+//! Note, that the error type parameters of the cache carries over to some other types in this
+//! crate via the [AcmeConfig] they are added to.
+//! If you want to avoid different specializations based on cache type use the
+//! [AcmeConfig::cache_with_boxed_err] method to construct the an [AcmeConfig] object.
+//!
 //!
 //! ## The acme module
 //!
@@ -89,21 +102,22 @@
 //! This crate builds on the excellent work of the authors of
 //! [rustls](https://github.com/ctz/rustls),
 //! [async-rustls](https://github.com/smol-rs/async-rustls),
-//! [async-std](https://github.com/async-rs/async-std),
 //! and many others.
 //!
+//! Thanks to [Josh Triplett](https://github.com/joshtriplett) for contributions and feedback.
 
-mod acceptor;
 pub mod acme;
+mod cache;
+pub mod caches;
+mod config;
 mod https_helper;
+mod incoming;
 mod jose;
-mod persist;
 mod resolver;
-mod simple;
+mod state;
 
-pub use acceptor::*;
-use https_helper::*;
-use jose::*;
-use persist::*;
+pub use cache::*;
+pub use config::*;
+pub use incoming::*;
 pub use resolver::*;
-pub use simple::*;
+pub use state::*;
