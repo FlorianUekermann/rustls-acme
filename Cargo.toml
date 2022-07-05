@@ -37,3 +37,5 @@ simple_logger = "2.1.0"
 structopt = "0.3.26"
 clap = { version = "3.1.18", features = ["derive"] }
 smol-potat = "1.1.2"
+tokio = { version="1.19.2", features = ["full"] }
+tokio-util = { version="0.7.3", features = ["compat"] }
