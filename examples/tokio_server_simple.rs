@@ -1,11 +1,11 @@
 use clap::Parser;
-use futures::AsyncWriteExt;
-use futures::StreamExt;
-use futures::TryStreamExt;
 use rustls_acme::caches::DirCache;
 use rustls_acme::AcmeConfig;
 use std::path::PathBuf;
+use tokio::io::AsyncWriteExt;
 use tokio_stream::wrappers::TcpListenerStream;
+use tokio_stream::StreamExt;
+use tokio_util::compat::FuturesAsyncReadCompatExt;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 #[derive(Parser, Debug)]
@@ -40,7 +40,9 @@ async fn main() {
         .await
         .unwrap();
     let tcp_incoming =
-        TcpListenerStream::new(tcp_listener).map_ok(|tcp_stream| tcp_stream.compat());
+        futures::TryStreamExt::map_ok(TcpListenerStream::new(tcp_listener), |tcp_stream| {
+            tcp_stream.compat()
+        });
 
     let mut tls_incoming = AcmeConfig::new(args.domains)
         .contact(args.email.iter().map(|e| format!("mailto:{}", e)))
@@ -48,10 +50,10 @@ async fn main() {
         .incoming(tcp_incoming);
 
     while let Some(tls) = tls_incoming.next().await {
-        let mut tls = tls.unwrap();
+        let mut tls = tls.unwrap().compat();
         tokio::spawn(async move {
             tls.write_all(HELLO).await.unwrap();
-            tls.close().await.unwrap();
+            tls.shutdown().await.unwrap();
         });
     }
     unreachable!()

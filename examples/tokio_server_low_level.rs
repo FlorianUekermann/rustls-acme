@@ -1,12 +1,13 @@
 use async_rustls::rustls::Session;
 use async_rustls::TlsAcceptor;
 use clap::Parser;
-use futures::AsyncWriteExt;
-use futures::StreamExt;
 use rustls_acme::acme::ACME_TLS_ALPN_NAME;
 use rustls_acme::caches::DirCache;
 use rustls_acme::AcmeConfig;
 use std::path::PathBuf;
+use tokio::io::AsyncWriteExt;
+use tokio_stream::StreamExt;
+use tokio_util::compat::FuturesAsyncReadCompatExt;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 #[derive(Parser, Debug)]
@@ -62,12 +63,12 @@ async fn serve(acceptor: TlsAcceptor, port: u16) {
         let tcp = listener.accept().await.unwrap().0.compat();
         let acceptor = acceptor.clone();
         tokio::spawn(async move {
-            let mut tls = acceptor.accept(tcp).await.unwrap();
-            match tls.get_ref().1.get_alpn_protocol() {
+            let mut tls = acceptor.accept(tcp).await.unwrap().compat();
+            match tls.get_ref().get_ref().1.get_alpn_protocol() {
                 Some(ACME_TLS_ALPN_NAME) => log::info!("received TLS-ALPN-01 validation request"),
                 _ => tls.write_all(HELLO).await.unwrap(),
             }
-            tls.close().await.unwrap();
+            tls.shutdown().await.unwrap();
         });
     }
 }
