@@ -1,6 +1,6 @@
 use crate::acme::ACME_TLS_ALPN_NAME;
-use async_rustls::rustls::sign::CertifiedKey;
-use async_rustls::rustls::{ClientHello, ResolvesServerCert};
+use rustls::server::{ClientHello, ResolvesServerCert};
+use rustls::sign::CertifiedKey;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -10,8 +10,8 @@ pub struct ResolvesServerCertAcme {
 }
 
 struct Inner {
-    cert: Option<CertifiedKey>,
-    auth_keys: BTreeMap<String, CertifiedKey>,
+    cert: Option<Arc<CertifiedKey>>,
+    auth_keys: BTreeMap<String, Arc<CertifiedKey>>,
 }
 
 impl ResolvesServerCertAcme {
@@ -23,17 +23,22 @@ impl ResolvesServerCertAcme {
             }),
         })
     }
-    pub(crate) fn set_cert(&self, cert: CertifiedKey) {
+    pub(crate) fn set_cert(&self, cert: Arc<CertifiedKey>) {
         self.inner.lock().unwrap().cert = Some(cert);
     }
-    pub(crate) fn set_auth_key(&self, domain: String, cert: CertifiedKey) {
+    pub(crate) fn set_auth_key(&self, domain: String, cert: Arc<CertifiedKey>) {
         self.inner.lock().unwrap().auth_keys.insert(domain, cert);
     }
 }
 
 impl ResolvesServerCert for ResolvesServerCertAcme {
-    fn resolve(&self, client_hello: ClientHello) -> Option<CertifiedKey> {
-        if client_hello.alpn() == Some(&[ACME_TLS_ALPN_NAME]) {
+    fn resolve(&self, client_hello: ClientHello) -> Option<Arc<CertifiedKey>> {
+        let is_acme_challenge = client_hello
+            .alpn()
+            .into_iter()
+            .flatten()
+            .eq([ACME_TLS_ALPN_NAME]);
+        if is_acme_challenge {
             match client_hello.server_name() {
                 None => {
                     log::debug!("client did not supply SNI");

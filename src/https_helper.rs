@@ -1,8 +1,10 @@
-use async_rustls::rustls::ClientConfig;
-use async_rustls::webpki::{DNSNameRef, InvalidDNSNameError};
-use async_rustls::TlsConnector;
+use futures_rustls::rustls::ClientConfig;
+use futures_rustls::TlsConnector;
 use http_types::{Method, Request, Response};
+use rustls::client::InvalidDnsNameError;
+use rustls::{RootCertStore, ServerName};
 use smol::net::TcpStream;
+use std::convert::TryFrom;
 use std::io;
 use std::sync::Arc;
 use thiserror::Error;
@@ -27,11 +29,20 @@ pub(crate) async fn https(
         Some(port) => port,
     };
     let tcp = TcpStream::connect((host, port)).await?;
-    let domain = DNSNameRef::try_from_ascii_str(host)?;
-    let mut config = ClientConfig::default();
-    config
-        .root_store
-        .add_server_trust_anchors(&TLS_SERVER_ROOTS);
+    let domain = ServerName::try_from(host)?;
+
+    let mut root_store = RootCertStore::empty();
+    root_store.add_server_trust_anchors(TLS_SERVER_ROOTS.0.iter().map(|ta| {
+        rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+            ta.subject,
+            ta.spki,
+            ta.name_constraints,
+        )
+    }));
+    let config = ClientConfig::builder()
+        .with_safe_defaults()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
     let tls = TlsConnector::from(Arc::new(config))
         .connect(domain, tcp)
         .await?;
@@ -51,7 +62,7 @@ pub enum HttpsRequestError {
     #[error("io error: {0:?}")]
     Io(#[from] io::Error),
     #[error("invalid dns name: {0:?}")]
-    InvalidDNSName(#[from] InvalidDNSNameError),
+    InvalidDnsName(#[from] InvalidDnsNameError),
     #[error("http error: {0:?}")]
     Http(Box<dyn std::error::Error + Send + Sync + 'static>),
     #[error("non 2xx http status: {status_code} {body:?}")]

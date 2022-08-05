@@ -54,23 +54,22 @@
 //! Hello Tls!"#;
 //! ```
 //!
-//! The server_simple example is a "Hello Tls!" server similar to the one above which accepts
+//! `examples/high_level.rs` implements a "Hello Tls!" server similar to the one above, which accepts
 //! domain, port and cache directory parameters.
 //!
 //! Note that all examples use the let's encrypt staging directory by default.
 //! The production directory imposes strict rate limits, which are easily exhausted accidentally
 //! during testing and development.
 //! For testing with the staging directory you may open `https://<your domain>:<port>` in a browser
-//! that allows TLS connection to servers signed by an untrusted CA (in Firefox click "Advanced..."
+//! that allows TLS connections to servers signed by an untrusted CA (in Firefox click "Advanced..."
 //! -> "Accept the Risk and Continue").
 //!
 //! ## Low-level Rustls API
 //!
-//! For users who may want to interact with [rustls](async_rustls::rustls) or [async_rustls]
+//! For users who may want to interact with [rustls] or [futures_rustls]
 //! directly, the library exposes the underlying certificate management [AcmeState] as well as a
-//! matching resolver [ResolvesServerCertAcme] which implements the
-//! [rustls::ResolvesServerCert](async_rustls::rustls::ResolvesServerCert) trait.
-//! See the server_low_level example on how to use the low-level API directly with async-rustls.
+//! matching resolver [ResolvesServerCertAcme] which implements the [rustls::ResolvesServerCert] trait.
+//! See the server_low_level example on how to use the low-level API directly with [futures_rustls].
 //!
 //! ## Account and certificate caching
 //!
@@ -101,12 +100,15 @@
 //!
 //! This crate builds on the excellent work of the authors of
 //! [rustls](https://github.com/ctz/rustls),
-//! [async-rustls](https://github.com/smol-rs/async-rustls),
+//! [futures-rustls](https://github.com/quininer/futures-rustls),
 //! and many others.
 //!
 //! Thanks to [Josh Triplett](https://github.com/joshtriplett) for contributions and feedback.
 
+mod acceptor;
 pub mod acme;
+#[cfg(feature = "axum")]
+pub mod axum;
 mod cache;
 pub mod caches;
 mod config;
@@ -116,6 +118,7 @@ mod jose;
 mod resolver;
 mod state;
 
+pub use acceptor::*;
 pub use cache::*;
 pub use config::*;
 pub use incoming::*;

@@ -1,16 +1,15 @@
 use crate::https_helper::{https, HttpsRequestError};
 use crate::jose::{key_authorization_sha256, sign, JoseError};
-use async_rustls::rustls::sign::{any_ecdsa_type, CertifiedKey};
-use async_rustls::rustls::PrivateKey;
 use base64::URL_SAFE_NO_PAD;
 use http_types::{Method, Response};
 use rcgen::{Certificate, CustomExtension, RcgenError, PKCS_ECDSA_P256_SHA256};
 use ring::error::{KeyRejected, Unspecified};
 use ring::rand::SystemRandom;
 use ring::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm, ECDSA_P256_SHA256_FIXED_SIGNING};
+use rustls::sign::{any_ecdsa_type, CertifiedKey};
+use rustls::PrivateKey;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::sync::Arc;
 use thiserror::Error;
 
 pub const LETS_ENCRYPT_STAGING_DIRECTORY: &str =
@@ -131,10 +130,7 @@ impl Account {
         params.custom_extensions = vec![CustomExtension::new_acme_identifier(key_auth.as_ref())];
         let cert = Certificate::from_params(params)?;
         let pk = any_ecdsa_type(&PrivateKey(cert.serialize_private_key_der())).unwrap();
-        let certified_key = CertifiedKey::new(
-            vec![async_rustls::rustls::Certificate(cert.serialize_der()?)],
-            Arc::new(pk),
-        );
+        let certified_key = CertifiedKey::new(vec![rustls::Certificate(cert.serialize_der()?)], pk);
         Ok((challenge, certified_key))
     }
 }

@@ -1,16 +1,16 @@
-use crate::acme::{Account, AcmeError, Auth, Directory, Identifier, Order, ACME_TLS_ALPN_NAME};
+use crate::acceptor::AcmeAcceptor;
+use crate::acme::{Account, AcmeError, Auth, Directory, Identifier, Order};
 use crate::{AcmeConfig, Incoming, ResolvesServerCertAcme};
 use async_io::Timer;
-use async_rustls::rustls::sign::{any_ecdsa_type, CertifiedKey};
-use async_rustls::rustls::PrivateKey;
-use async_rustls::rustls::{Certificate as RustlsCertificate, NoClientAuth, ServerConfig};
-use async_rustls::TlsAcceptor;
 use chrono::{DateTime, TimeZone, Utc};
 use futures::future::try_join_all;
 use futures::prelude::*;
 use futures::ready;
 use pin_project::pin_project;
 use rcgen::{CertificateParams, DistinguishedName, RcgenError, PKCS_ECDSA_P256_SHA256};
+use rustls::sign::{any_ecdsa_type, CertifiedKey};
+use rustls::Certificate as RustlsCertificate;
+use rustls::PrivateKey;
 use std::convert::Infallible;
 use std::fmt::Debug;
 use std::future::Future;
@@ -103,11 +103,15 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         let acceptor = self.acceptor();
         Incoming::new(tcp_incoming, self, acceptor)
     }
-    pub fn acceptor(&self) -> TlsAcceptor {
-        let mut config = ServerConfig::new(NoClientAuth::new());
-        config.cert_resolver = self.resolver.clone();
-        config.alpn_protocols.push(ACME_TLS_ALPN_NAME.to_vec());
-        TlsAcceptor::from(Arc::new(config))
+    pub fn acceptor(&self) -> AcmeAcceptor {
+        AcmeAcceptor::new(self.resolver())
+    }
+    #[cfg(feature = "axum")]
+    pub fn axum_acceptor(
+        &self,
+        rustls_config: Arc<rustls::ServerConfig>,
+    ) -> crate::axum::AxumAcceptor {
+        crate::axum::AxumAcceptor::new(self.acceptor(), rustls_config)
     }
     pub fn resolver(&self) -> Arc<ResolvesServerCertAcme> {
         self.resolver.clone()
@@ -160,7 +164,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             Ok((_, cert)) => Utc.timestamp(cert.validity().not_after.timestamp(), 0),
             Err(err) => return Err(CertParseError::X509(err)),
         };
-        let cert = CertifiedKey::new(cert_chain, Arc::new(pk));
+        let cert = CertifiedKey::new(cert_chain, pk);
         Ok((cert, valid_until))
     }
     fn process_cert(&mut self, pem: Vec<u8>, cached: bool) -> Event<EC, EA> {
@@ -174,7 +178,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             }
         };
         self.valid_until = valid_until;
-        self.resolver.set_cert(cert);
+        self.resolver.set_cert(Arc::new(cert));
         let wait_duration = (self.valid_until - Utc::now())
             .max(chrono::Duration::zero())
             .div(2)
@@ -256,7 +260,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                 let Identifier::Dns(domain) = identifier;
                 log::info!("trigger challenge for {}", &domain);
                 let (challenge, auth_key) = account.tls_alpn_01(&challenges, domain.clone())?;
-                resolver.set_auth_key(domain.clone(), auth_key);
+                resolver.set_auth_key(domain.clone(), Arc::new(auth_key));
                 account.challenge(&challenge.url).await?;
                 (domain, challenge.url.clone())
             }

@@ -1,10 +1,9 @@
-use async_rustls::rustls::Session;
-use async_rustls::TlsAcceptor;
 use clap::Parser;
-use rustls_acme::acme::ACME_TLS_ALPN_NAME;
+use rustls::ServerConfig;
 use rustls_acme::caches::DirCache;
-use rustls_acme::AcmeConfig;
+use rustls_acme::{AcmeAcceptor, AcmeConfig};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio_stream::StreamExt;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
@@ -42,6 +41,10 @@ async fn main() {
         .contact(args.email.iter().map(|e| format!("mailto:{}", e)))
         .cache_option(args.cache.clone().map(DirCache::new))
         .state();
+    let rustls_config = ServerConfig::builder()
+        .with_safe_defaults()
+        .with_no_client_auth()
+        .with_cert_resolver(state.resolver());
     let acceptor = state.acceptor();
 
     tokio::spawn(async move {
@@ -52,23 +55,32 @@ async fn main() {
             }
         }
     });
-    serve(acceptor, args.port).await;
+
+    serve(acceptor, Arc::new(rustls_config), args.port).await;
 }
 
-async fn serve(acceptor: TlsAcceptor, port: u16) {
+async fn serve(acceptor: AcmeAcceptor, rustls_config: Arc<ServerConfig>, port: u16) {
     let listener = tokio::net::TcpListener::bind(format!("[::]:{}", port))
         .await
         .unwrap();
     loop {
         let tcp = listener.accept().await.unwrap().0.compat();
-        let acceptor = acceptor.clone();
+        let rustls_config = rustls_config.clone();
+        let accept_future = acceptor.accept(tcp);
+
         tokio::spawn(async move {
-            let mut tls = acceptor.accept(tcp).await.unwrap().compat();
-            match tls.get_ref().get_ref().1.get_alpn_protocol() {
-                Some(ACME_TLS_ALPN_NAME) => log::info!("received TLS-ALPN-01 validation request"),
-                _ => tls.write_all(HELLO).await.unwrap(),
+            match accept_future.await.unwrap() {
+                None => log::info!("received TLS-ALPN-01 validation request"),
+                Some(start_handshake) => {
+                    let mut tls = start_handshake
+                        .into_stream(rustls_config)
+                        .await
+                        .unwrap()
+                        .compat();
+                    tls.write_all(HELLO).await.unwrap();
+                    tls.shutdown().await.unwrap();
+                }
             }
-            tls.shutdown().await.unwrap();
         });
     }
 }
