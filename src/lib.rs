@@ -118,6 +118,8 @@ mod jose;
 mod resolver;
 mod state;
 
+pub use futures_rustls;
+
 pub use acceptor::*;
 pub use cache::*;
 pub use config::*;
