@@ -1,40 +1,44 @@
 use crate::acceptor::{AcmeAccept, AcmeAcceptor};
 use crate::AcmeState;
-use futures::stream::FuturesUnordered;
+use futures::stream::{FusedStream, FuturesUnordered};
 use futures::{AsyncRead, AsyncWrite, Stream};
 use futures_rustls::server::TlsStream;
 use futures_rustls::Accept;
-use pin_project::pin_project;
 use rustls::ServerConfig;
 use std::fmt::Debug;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-#[pin_project]
 pub struct Incoming<
     TCP: AsyncRead + AsyncWrite + Unpin,
     ETCP,
-    ITCP: Stream<Item = Result<TCP, ETCP>>,
+    ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin,
     EC: Debug + 'static,
     EA: Debug + 'static,
 > {
-    #[pin]
     state: AcmeState<EC, EA>,
     acceptor: AcmeAcceptor,
     rustls_config: Arc<ServerConfig>,
-    #[pin]
-    tcp_incoming: ITCP,
-    #[pin]
+    tcp_incoming: Option<ITCP>,
     acme_accepting: FuturesUnordered<AcmeAccept<TCP>>,
-    #[pin]
     tls_accepting: FuturesUnordered<Accept<TCP>>,
 }
 
 impl<
         TCP: AsyncRead + AsyncWrite + Unpin,
         ETCP,
-        ITCP: Stream<Item = Result<TCP, ETCP>>,
+        ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin,
+        EC: Debug + 'static,
+        EA: Debug + 'static,
+    > Unpin for Incoming<TCP, ETCP, ITCP, EC, EA>
+{
+}
+
+impl<
+        TCP: AsyncRead + AsyncWrite + Unpin,
+        ETCP,
+        ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin,
         EC: Debug + 'static,
         EA: Debug + 'static,
     > Incoming<TCP, ETCP, ITCP, EC, EA>
@@ -48,7 +52,7 @@ impl<
             state,
             acceptor,
             rustls_config: Arc::new(config),
-            tcp_incoming,
+            tcp_incoming: Some(tcp_incoming),
             acme_accepting: FuturesUnordered::new(),
             tls_accepting: FuturesUnordered::new(),
         }
@@ -58,17 +62,16 @@ impl<
 impl<
         TCP: AsyncRead + AsyncWrite + Unpin,
         ETCP,
-        ITCP: Stream<Item = Result<TCP, ETCP>>,
+        ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin,
         EC: Debug + 'static,
         EA: Debug + 'static,
     > Stream for Incoming<TCP, ETCP, ITCP, EC, EA>
 {
     type Item = Result<TlsStream<TCP>, ETCP>;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut this = self.project();
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
-            match this.state.as_mut().poll_next(cx) {
+            match Pin::new(&mut self.state).poll_next(cx) {
                 Poll::Ready(Some(event)) => {
                     match event {
                         Ok(ok) => log::info!("event: {:?}", ok),
@@ -79,27 +82,56 @@ impl<
                 Poll::Ready(None) => unreachable!(),
                 Poll::Pending => {}
             }
-            match this.acme_accepting.as_mut().poll_next(cx) {
-                Poll::Ready(Some(Ok(Some(tls)))) => this
+            match Pin::new(&mut self.acme_accepting).poll_next(cx) {
+                Poll::Ready(Some(Ok(Some(tls)))) => self
                     .tls_accepting
-                    .push(tls.into_stream(this.rustls_config.clone())),
+                    .push(tls.into_stream(self.rustls_config.clone())),
                 Poll::Ready(Some(Ok(None))) => {
-                    log::info!("received TLS-ALPN-01 validation request")
+                    log::info!("received TLS-ALPN-01 validation request");
+                    continue;
                 }
-                Poll::Ready(Some(Err(err))) => log::error!("tls accept failed, {:?}", err),
+                Poll::Ready(Some(Err(err))) => {
+                    log::error!("tls accept failed, {:?}", err);
+                    continue;
+                }
                 Poll::Ready(None) | Poll::Pending => {}
             }
-            match this.tls_accepting.as_mut().poll_next(cx) {
+            match Pin::new(&mut self.tls_accepting).poll_next(cx) {
                 Poll::Ready(Some(Ok(tls))) => return Poll::Ready(Some(Ok(tls))),
-                Poll::Ready(Some(Err(err))) => log::error!("tls accept failed, {:?}", err),
+                Poll::Ready(Some(Err(err))) => {
+                    log::error!("tls accept failed, {:?}", err);
+                    continue;
+                }
                 Poll::Ready(None) | Poll::Pending => {}
             }
-            match this.tcp_incoming.as_mut().poll_next(cx) {
-                Poll::Ready(Some(Ok(tcp))) => this.acme_accepting.push(this.acceptor.accept(tcp)),
+            let tcp_incoming = match &mut self.tcp_incoming {
+                Some(tcp_incoming) => tcp_incoming,
+                None => return Poll::Pending,
+            };
+            match Pin::new(tcp_incoming).poll_next(cx) {
+                Poll::Ready(Some(Ok(tcp))) => self.acme_accepting.push(self.acceptor.accept(tcp)),
                 Poll::Ready(Some(Err(err))) => return Poll::Ready(Some(Err(err))),
-                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Ready(None) => {
+                    drop(self.tcp_incoming.as_mut().take());
+                    return Poll::Ready(None);
+                }
                 Poll::Pending => return Poll::Pending,
             }
         }
+    }
+}
+
+impl<
+        TCP: AsyncRead + AsyncWrite + Unpin,
+        ETCP,
+        ITCP: Stream<Item = Result<TCP, ETCP>> + FusedStream + Unpin,
+        EC: Debug + 'static,
+        EA: Debug + 'static,
+    > FusedStream for Incoming<TCP, ETCP, ITCP, EC, EA>
+{
+    fn is_terminated(&self) -> bool {
+        self.tcp_incoming.is_none()
+            && self.acme_accepting.is_terminated()
+            && self.tls_accepting.is_terminated()
     }
 }

@@ -121,7 +121,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
     pub fn incoming<
         TCP: AsyncRead + AsyncWrite + Unpin,
         ETCP,
-        ITCP: Stream<Item = Result<TCP, ETCP>>,
+        ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin,
     >(
         self,
         tcp_incoming: ITCP,
