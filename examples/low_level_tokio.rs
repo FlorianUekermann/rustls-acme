@@ -2,6 +2,7 @@ use clap::Parser;
 use rustls::ServerConfig;
 use rustls_acme::caches::DirCache;
 use rustls_acme::{AcmeAcceptor, AcmeConfig};
+use std::net::Ipv6Addr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
@@ -26,7 +27,7 @@ struct Args {
     /// Use Let's Encrypt production environment
     /// (see https://letsencrypt.org/docs/staging-environment/)
     #[clap(long)]
-    prod: Option<bool>,
+    prod: bool,
 
     #[clap(short, long, default_value = "443")]
     port: u16,
@@ -40,6 +41,7 @@ async fn main() {
     let mut state = AcmeConfig::new(args.domains)
         .contact(args.email.iter().map(|e| format!("mailto:{}", e)))
         .cache_option(args.cache.clone().map(DirCache::new))
+        .directory_lets_encrypt(args.prod)
         .state();
     let rustls_config = ServerConfig::builder()
         .with_safe_defaults()
@@ -60,7 +62,7 @@ async fn main() {
 }
 
 async fn serve(acceptor: AcmeAcceptor, rustls_config: Arc<ServerConfig>, port: u16) {
-    let listener = tokio::net::TcpListener::bind(format!("[::]:{}", port))
+    let listener = tokio::net::TcpListener::bind((Ipv6Addr::UNSPECIFIED, port))
         .await
         .unwrap();
     loop {

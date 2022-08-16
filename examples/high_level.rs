@@ -5,6 +5,7 @@ use rustls_acme::caches::DirCache;
 use rustls_acme::AcmeConfig;
 use smol::net::TcpListener;
 use smol::spawn;
+use std::net::Ipv6Addr;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -24,7 +25,7 @@ struct Args {
     /// Use Let's Encrypt production environment
     /// (see https://letsencrypt.org/docs/staging-environment/)
     #[clap(long)]
-    prod: Option<bool>,
+    prod: bool,
 
     #[clap(short, long, default_value = "443")]
     port: u16,
@@ -35,13 +36,14 @@ async fn main() {
     simple_logger::init_with_level(log::Level::Info).unwrap();
     let args = Args::parse();
 
-    let tcp_listener = TcpListener::bind(format!("[::]:{}", args.port))
+    let tcp_listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, args.port))
         .await
         .unwrap();
 
     let mut tls_incoming = AcmeConfig::new(args.domains)
         .contact(args.email.iter().map(|e| format!("mailto:{}", e)))
         .cache_option(args.cache.clone().map(DirCache::new))
+        .directory_lets_encrypt(args.prod)
         .incoming(tcp_listener.incoming());
 
     while let Some(tls) = tls_incoming.next().await {
