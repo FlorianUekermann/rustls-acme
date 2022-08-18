@@ -106,15 +106,15 @@ impl<
             }
             let tcp_incoming = match &mut self.tcp_incoming {
                 Some(tcp_incoming) => tcp_incoming,
-                None => return Poll::Pending,
+                None => match self.is_terminated() {
+                    true => return Poll::Ready(None),
+                    false => return Poll::Pending,
+                },
             };
             match Pin::new(tcp_incoming).poll_next(cx) {
                 Poll::Ready(Some(Ok(tcp))) => self.acme_accepting.push(self.acceptor.accept(tcp)),
                 Poll::Ready(Some(Err(err))) => return Poll::Ready(Some(Err(err))),
-                Poll::Ready(None) => {
-                    drop(self.tcp_incoming.as_mut().take());
-                    return Poll::Ready(None);
-                }
+                Poll::Ready(None) => drop(self.tcp_incoming.as_mut().take()),
                 Poll::Pending => return Poll::Pending,
             }
         }
