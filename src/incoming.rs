@@ -124,7 +124,7 @@ impl<
 impl<
         TCP: AsyncRead + AsyncWrite + Unpin,
         ETCP,
-        ITCP: Stream<Item = Result<TCP, ETCP>> + FusedStream + Unpin,
+        ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin,
         EC: Debug + 'static,
         EA: Debug + 'static,
     > FusedStream for Incoming<TCP, ETCP, ITCP, EC, EA>
