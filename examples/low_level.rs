@@ -29,6 +29,12 @@ struct Args {
     #[clap(long)]
     prod: bool,
 
+    #[cfg(feature = "rustls-native-certs")]
+    /// Custom acme directory
+    #[clap(long)]
+    directory: Option<String>,
+
+
     #[clap(short, long, default_value = "443")]
     port: u16,
 }
@@ -38,11 +44,17 @@ async fn main() {
     simple_logger::init_with_level(log::Level::Info).unwrap();
     let args = Args::parse();
 
-    let mut state = AcmeConfig::new(args.domains)
+    let acme_config = AcmeConfig::new(args.domains)
         .contact(args.email.iter().map(|e| format!("mailto:{}", e)))
-        .cache_option(args.cache.clone().map(DirCache::new))
-        .directory_lets_encrypt(args.prod)
-        .state();
+        .cache_option(args.cache.clone().map(DirCache::new));
+    #[cfg(feature = "rustls-native-certs")]
+    let acme_config = match args.directory {
+        Some(dir) => acme_config.directory(&dir),
+        None => acme_config.directory_lets_encrypt(args.prod),
+    };
+    #[cfg(not(feature = "rustls-native-certs"))]
+    let acme_config = acme_config.directory_lets_encrypt(args.prod);
+    let mut state = acme_config.state();
     let rustls_config = ServerConfig::builder()
         .with_safe_defaults()
         .with_no_client_auth()

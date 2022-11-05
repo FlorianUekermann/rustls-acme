@@ -17,6 +17,9 @@ axum = ["axum-server", "tokio-util", "tokio"]
 name="low_level_axum"
 required-features=["axum"]
 
+[[example]]
+name="low_level_tokio"
+
 [dependencies]
 futures-rustls = "0.22.2"
 futures = "0.3.21"
@@ -42,6 +45,7 @@ rustls = "0.20.6"
 axum-server = { version = "0.4.1", features = ["tls-rustls"], optional=true }
 tokio-util = { version= "0.7.3", optional= true }
 tokio = { version= "1.20.1", optional= true }
+rustls-native-certs = { version = "0.6.2", optional = true }
 
 [dev-dependencies]
 simple_logger = "2.1.0"

@@ -8,7 +8,26 @@ use std::convert::TryFrom;
 use std::io;
 use std::sync::Arc;
 use thiserror::Error;
+#[cfg(not(feature = "rustls-native-certs"))]
 use webpki_roots::TLS_SERVER_ROOTS;
+
+#[cfg(not(feature = "rustls-native-certs"))]
+fn load_root_certs(root_store: &mut RootCertStore) {
+    root_store.add_server_trust_anchors(TLS_SERVER_ROOTS.0.iter().map(|ta| {
+        rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+            ta.subject,
+            ta.spki,
+            ta.name_constraints,
+        )
+    }));
+}
+
+#[cfg(feature = "rustls-native-certs")]
+fn load_root_certs(root_store: &mut RootCertStore) {
+    for cert in rustls_native_certs::load_native_certs().unwrap() {
+        root_store.add(&rustls::Certificate(cert.0)).unwrap()
+    }
+}
 
 pub(crate) async fn https(
     url: impl AsRef<str>,
@@ -32,13 +51,7 @@ pub(crate) async fn https(
     let domain = ServerName::try_from(host)?;
 
     let mut root_store = RootCertStore::empty();
-    root_store.add_server_trust_anchors(TLS_SERVER_ROOTS.0.iter().map(|ta| {
-        rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-            ta.subject,
-            ta.spki,
-            ta.name_constraints,
-        )
-    }));
+    load_root_certs(&mut root_store);
     let config = ClientConfig::builder()
         .with_safe_defaults()
         .with_root_certificates(root_store)
