@@ -14,7 +14,6 @@ use rustls::PrivateKey;
 use std::convert::Infallible;
 use std::fmt::Debug;
 use std::future::Future;
-use std::ops::Div;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -32,7 +31,6 @@ pub struct AcmeState<EC: Debug = Infallible, EA: Debug = EC> {
     load_cert: Option<Pin<Box<dyn Future<Output = Result<Option<Vec<u8>>, EC>> + Send>>>,
     load_account: Option<Pin<Box<dyn Future<Output = Result<Option<Vec<u8>>, EA>> + Send>>>,
     order: Option<Pin<Box<dyn Future<Output = Result<Vec<u8>, OrderError>> + Send>>>,
-    valid_until: chrono::DateTime<Utc>,
     backoff_cnt: usize,
     wait: Option<Timer>,
 }
@@ -142,12 +140,11 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                 }
             })),
             order: None,
-            valid_until: Utc.timestamp(0, 0),
             backoff_cnt: 0,
             wait: None,
         }
     }
-    fn parse_cert(pem: &[u8]) -> Result<(CertifiedKey, DateTime<Utc>), CertParseError> {
+    fn parse_cert(pem: &[u8]) -> Result<(CertifiedKey, [DateTime<Utc>; 2]), CertParseError> {
         let mut pems = pem::parse_many(&pem)?;
         if pems.len() < 2 {
             return Err(CertParseError::TooFewPem(pems.len()));
@@ -160,15 +157,18 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             .into_iter()
             .map(|p| RustlsCertificate(p.contents))
             .collect();
-        let valid_until = match parse_x509_certificate(cert_chain[0].0.as_slice()) {
-            Ok((_, cert)) => Utc.timestamp(cert.validity().not_after.timestamp(), 0),
+        let validity = match parse_x509_certificate(cert_chain[0].0.as_slice()) {
+            Ok((_, cert)) => {
+                let validity = cert.validity();
+                [validity.not_before, validity.not_after].map(|t| Utc.timestamp(t.timestamp(), 0))
+            }
             Err(err) => return Err(CertParseError::X509(err)),
         };
         let cert = CertifiedKey::new(cert_chain, pk);
-        Ok((cert, valid_until))
+        Ok((cert, validity))
     }
     fn process_cert(&mut self, pem: Vec<u8>, cached: bool) -> Event<EC, EA> {
-        let (cert, valid_until) = match (Self::parse_cert(&pem), cached) {
+        let (cert, validity) = match (Self::parse_cert(&pem), cached) {
             (Ok(r), _) => r,
             (Err(err), cached) => {
                 return match cached {
@@ -177,11 +177,9 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                 }
             }
         };
-        self.valid_until = valid_until;
         self.resolver.set_cert(Arc::new(cert));
-        let wait_duration = (self.valid_until - Utc::now())
+        let wait_duration = (validity[1] - (validity[1] - validity[0]) / 3 - Utc::now())
             .max(chrono::Duration::zero())
-            .div(2)
             .to_std()
             .unwrap_or_default();
         self.wait = Some(Timer::after(wait_duration));
