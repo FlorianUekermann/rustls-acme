@@ -204,15 +204,23 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         resolver: Arc<ResolvesServerCertAcme>,
         key_pair: Vec<u8>,
     ) -> Result<Vec<u8>, OrderError> {
-        let directory = Directory::discover(&config.directory_url).await?;
-        let account = Account::create_with_keypair(directory, &config.contact, &key_pair).await?;
+        let directory = Directory::discover(&config.client_config, &config.directory_url).await?;
+        let account = Account::create_with_keypair(
+            &config.client_config,
+            directory,
+            &config.contact,
+            &key_pair,
+        )
+        .await?;
 
         let mut params = CertificateParams::new(config.domains.clone());
         params.distinguished_name = DistinguishedName::new();
         params.alg = &PKCS_ECDSA_P256_SHA256;
         let cert = rcgen::Certificate::from_params(params)?;
 
-        let mut order = account.new_order(config.domains.clone()).await?;
+        let mut order = account
+            .new_order(&config.client_config, config.domains.clone())
+            .await?;
         loop {
             order = match order {
                 Order::Pending {
@@ -221,7 +229,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                 } => {
                     let auth_futures = authorizations
                         .iter()
-                        .map(|url| Self::authorize(&resolver, &account, url));
+                        .map(|url| Self::authorize(&config, &resolver, &account, url));
                     try_join_all(auth_futures).await?;
                     log::info!("completed all authorizations");
                     Order::Ready { finalize }
@@ -229,14 +237,18 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                 Order::Ready { finalize } => {
                     log::info!("sending csr");
                     let csr = cert.serialize_request_der()?;
-                    account.finalize(finalize, csr).await?
+                    account
+                        .finalize(&config.client_config, finalize, csr)
+                        .await?
                 }
                 Order::Valid { certificate } => {
                     log::info!("download certificate");
                     let pem = [
                         &cert.serialize_private_key_pem(),
                         "\n",
-                        &account.certificate(certificate).await?,
+                        &account
+                            .certificate(&config.client_config, certificate)
+                            .await?,
                     ]
                     .concat();
                     return Ok(pem.into_bytes());
@@ -246,11 +258,12 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         }
     }
     async fn authorize(
+        config: &AcmeConfig<EC, EA>,
         resolver: &ResolvesServerCertAcme,
         account: &Account,
         url: &String,
     ) -> Result<(), OrderError> {
-        let (domain, challenge_url) = match account.auth(url).await? {
+        let (domain, challenge_url) = match account.auth(&config.client_config, url).await? {
             Auth::Pending {
                 identifier,
                 challenges,
@@ -259,7 +272,9 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                 log::info!("trigger challenge for {}", &domain);
                 let (challenge, auth_key) = account.tls_alpn_01(&challenges, domain.clone())?;
                 resolver.set_auth_key(domain.clone(), Arc::new(auth_key));
-                account.challenge(&challenge.url).await?;
+                account
+                    .challenge(&config.client_config, &challenge.url)
+                    .await?;
                 (domain, challenge.url.clone())
             }
             Auth::Valid => return Ok(()),
@@ -267,10 +282,12 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         };
         for i in 0u64..5 {
             Timer::after(Duration::from_secs(1u64 << i)).await;
-            match account.auth(url).await? {
+            match account.auth(&config.client_config, url).await? {
                 Auth::Pending { .. } => {
                     log::info!("authorization for {} still pending", &domain);
-                    account.challenge(&challenge_url).await?
+                    account
+                        .challenge(&config.client_config, &challenge_url)
+                        .await?
                 }
                 Auth::Valid => return Ok(()),
                 auth => return Err(OrderError::BadAuth(auth)),

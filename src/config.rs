@@ -3,13 +3,17 @@ use crate::caches::{BoxedErrCache, CompositeCache, NoCache};
 use crate::{AccountCache, Cache, CertCache};
 use crate::{AcmeState, Incoming};
 use futures::{AsyncRead, AsyncWrite, Stream};
+use rustls::{ClientConfig, RootCertStore};
 use std::convert::Infallible;
 use std::fmt::Debug;
+use std::sync::Arc;
+use webpki_roots::TLS_SERVER_ROOTS;
 
 /// Configuration for an ACME resolver.
 ///
 /// The type parameters represent the error types for the certificate cache and account cache.
 pub struct AcmeConfig<EC: Debug, EA: Debug = EC> {
+    pub(crate) client_config: Arc<ClientConfig>,
     pub(crate) directory_url: String,
     pub(crate) domains: Vec<String>,
     pub(crate) contact: Vec<String>,
@@ -44,7 +48,22 @@ impl AcmeConfig<Infallible, Infallible> {
     /// ```
     ///
     pub fn new(domains: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
+        let mut root_store = RootCertStore::empty();
+        root_store.add_server_trust_anchors(TLS_SERVER_ROOTS.0.iter().map(|ta| {
+            rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+                ta.subject,
+                ta.spki,
+                ta.name_constraints,
+            )
+        }));
+        let client_config = Arc::new(
+            ClientConfig::builder()
+                .with_safe_defaults()
+                .with_root_certificates(root_store)
+                .with_no_client_auth(),
+        );
         AcmeConfig {
+            client_config,
             directory_url: LETS_ENCRYPT_STAGING_DIRECTORY.into(),
             domains: domains.into_iter().map(|s| s.as_ref().into()).collect(),
             contact: vec![],
@@ -54,6 +73,11 @@ impl AcmeConfig<Infallible, Infallible> {
 }
 
 impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
+    /// Set custom `rustls::ClientConfig` for ACME API calls.
+    pub fn client_tls_config(mut self, client_config: Arc<ClientConfig>) -> Self {
+        self.client_config = client_config;
+        self
+    }
     pub fn directory(mut self, directory_url: impl AsRef<str>) -> Self {
         self.directory_url = directory_url.as_ref().into();
         self
@@ -93,6 +117,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
 
     pub fn cache<C: 'static + Cache>(self, cache: C) -> AcmeConfig<C::EC, C::EA> {
         AcmeConfig {
+            client_config: self.client_config,
             directory_url: self.directory_url,
             domains: self.domains,
             contact: self.contact,
