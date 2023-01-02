@@ -178,7 +178,8 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         let validity = match parse_x509_certificate(cert_chain[0].0.as_slice()) {
             Ok((_, cert)) => {
                 let validity = cert.validity();
-                [validity.not_before, validity.not_after].map(|t| Utc.timestamp(t.timestamp(), 0))
+                [validity.not_before, validity.not_after]
+                    .map(|t| Utc.timestamp_opt(t.timestamp(), 0).earliest().unwrap())
             }
             Err(err) => return Err(CertParseError::X509(err)),
         };

@@ -39,7 +39,7 @@ pub struct AcmeAccept<IO: AsyncRead + AsyncWrite + Unpin> {
 impl<IO: AsyncRead + AsyncWrite + Unpin> AcmeAccept<IO> {
     pub(crate) fn new(io: IO, config: Arc<ServerConfig>) -> Self {
         Self {
-            acceptor: LazyConfigAcceptor::new(Acceptor::new().unwrap(), io),
+            acceptor: LazyConfigAcceptor::new(Acceptor::default(), io),
             config,
             validation_accept: None,
         }
