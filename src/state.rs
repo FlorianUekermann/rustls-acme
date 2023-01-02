@@ -104,6 +104,24 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
     pub fn acceptor(&self) -> AcmeAcceptor {
         AcmeAcceptor::new(self.resolver())
     }
+    #[cfg(feature = "tokio")]
+    pub fn tokio_incoming<
+        TokioTCP: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+        ETCP,
+        TokioITCP: Stream<Item = Result<TokioTCP, ETCP>> + Unpin,
+    >(
+        self,
+        tcp_incoming: TokioITCP,
+    ) -> crate::tokio::TokioIncoming<
+        tokio_util::compat::Compat<TokioTCP>,
+        ETCP,
+        crate::tokio::TokioIncomingTcpWrapper<TokioTCP, ETCP, TokioITCP>,
+        EC,
+        EA,
+    > {
+        let tcp_incoming = crate::tokio::TokioIncomingTcpWrapper::from(tcp_incoming);
+        crate::tokio::TokioIncoming::from(self.incoming(tcp_incoming))
+    }
     #[cfg(feature = "axum")]
     pub fn axum_acceptor(
         &self,

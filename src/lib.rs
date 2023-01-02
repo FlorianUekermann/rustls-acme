@@ -68,7 +68,7 @@
 //!
 //! For users who may want to interact with [rustls] or [futures_rustls]
 //! directly, the library exposes the underlying certificate management [AcmeState] as well as a
-//! matching resolver [ResolvesServerCertAcme] which implements the [rustls::ResolvesServerCert] trait.
+//! matching resolver [ResolvesServerCertAcme] which implements the [rustls::server::ResolvesServerCert] trait.
 //! See the server_low_level example on how to use the low-level API directly with [futures_rustls].
 //!
 //! ## Account and certificate caching
@@ -105,6 +105,8 @@
 //!
 //! Thanks to [Josh Triplett](https://github.com/joshtriplett) for contributions and feedback.
 
+#![cfg_attr(doc_auto_cfg, feature(doc_auto_cfg))]
+
 mod acceptor;
 pub mod acme;
 #[cfg(feature = "axum")]
@@ -117,6 +119,8 @@ mod incoming;
 mod jose;
 mod resolver;
 mod state;
+#[cfg(feature = "tokio")]
+pub mod tokio;
 
 pub use futures_rustls;
 

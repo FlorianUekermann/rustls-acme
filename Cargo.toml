@@ -10,13 +10,6 @@ documentation = "https://docs.rs/rustls-acme"
 keywords = ["acme", "rustls", "tls"]
 categories = ["asynchronous", "cryptography", "network-programming"]
 
-[features]
-axum = ["axum-server", "tokio-util", "tokio"]
-
-[[example]]
-name="low_level_axum"
-required-features=["axum"]
-
 [dependencies]
 futures-rustls = "0.22.2"
 futures = "0.3.21"
@@ -39,16 +32,37 @@ smol = "1.2.5"
 pin-project = "1.0.10"
 async-io = "1.6.0"
 rustls = "0.20.6"
-axum-server = { version = "0.4.1", features = ["tls-rustls"], optional=true }
-tokio-util = { version= "0.7.3", optional= true }
 tokio = { version= "1.20.1", optional= true }
+tokio-util = { version="0.7.3", features = ["compat"], optional=true }
+axum-server = { version = "0.4.1", features = ["tls-rustls"], optional=true }
 
 [dev-dependencies]
 simple_logger = "2.1.0"
 structopt = "0.3.26"
 clap = { version = "3.1.18", features = ["derive"] }
 smol-potat = "1.1.2"
-tokio = { version="1.19.2", features = ["full"] }
-tokio-util = { version="0.7.3", features = ["compat"] }
-tokio-stream = { version="0.1.9", features = ["net"] }
 axum = "0.5.13"
+tokio = { version="1.19.2", features = ["full"] }
+tokio-stream = { version="0.1.9", features = ["net"] }
+tokio-util = { version="0.7.3", features = ["compat"] }
+warp = { version="0.3.3" }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "doc_auto_cfg"]
+
+[features]
+axum = ["dep:axum-server", "tokio"]
+tokio = ["dep:tokio", "dep:tokio-util"]
+
+[[example]]
+name="low_level_axum"
+required-features=["axum"]
+
+[[example]]
+name="high_level_warp"
+required-features=["tokio"]
+
+[[example]]
+name="high_level_tokio"
+required-features=["tokio"]

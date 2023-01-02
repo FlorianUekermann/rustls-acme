@@ -3,9 +3,8 @@ use rustls_acme::caches::DirCache;
 use rustls_acme::AcmeConfig;
 use std::net::Ipv6Addr;
 use std::path::PathBuf;
-use tokio::io::AsyncWriteExt;
 use tokio_stream::wrappers::TcpListenerStream;
-use tokio_stream::StreamExt;
+use warp::Filter;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -40,24 +39,14 @@ async fn main() {
         .unwrap();
     let tcp_incoming = TcpListenerStream::new(tcp_listener);
 
-    let mut tls_incoming = AcmeConfig::new(args.domains)
+    let tls_incoming = AcmeConfig::new(args.domains)
         .contact(args.email.iter().map(|e| format!("mailto:{}", e)))
         .cache_option(args.cache.clone().map(DirCache::new))
         .directory_lets_encrypt(args.prod)
         .tokio_incoming(tcp_incoming);
 
-    while let Some(tls) = tls_incoming.next().await {
-        let mut tls = tls.unwrap();
-        tokio::spawn(async move {
-            tls.write_all(HELLO).await.unwrap();
-            tls.shutdown().await.unwrap();
-        });
-    }
+    let route = warp::any().map(|| "Hello Tls!");
+    warp::serve(route).run_incoming(tls_incoming).await;
+
     unreachable!()
 }
-
-const HELLO: &'static [u8] = br#"HTTP/1.1 200 OK
-Content-Length: 10
-Content-Type: text/plain; charset=utf-8
-
-Hello Tls!"#;

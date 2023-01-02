@@ -153,4 +153,21 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
     ) -> Incoming<TCP, ETCP, ITCP, EC, EA> {
         self.state().incoming(tcp_incoming)
     }
+    #[cfg(feature = "tokio")]
+    pub fn tokio_incoming<
+        TokioTCP: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+        ETCP,
+        TokioITCP: Stream<Item = Result<TokioTCP, ETCP>> + Unpin,
+    >(
+        self,
+        tcp_incoming: TokioITCP,
+    ) -> crate::tokio::TokioIncoming<
+        tokio_util::compat::Compat<TokioTCP>,
+        ETCP,
+        crate::tokio::TokioIncomingTcpWrapper<TokioTCP, ETCP, TokioITCP>,
+        EC,
+        EA,
+    > {
+        self.state().tokio_incoming(tcp_incoming)
+    }
 }
