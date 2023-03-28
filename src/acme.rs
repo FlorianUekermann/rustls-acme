@@ -228,16 +228,22 @@ pub enum Order {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(tag = "status", rename_all = "camelCase")]
-pub enum Auth {
-    Pending {
-        identifier: Identifier,
-        challenges: Vec<Challenge>,
-    },
+#[serde(rename_all = "camelCase")]
+pub struct Auth {
+    pub status: AuthStatus,
+    pub identifier: Identifier,
+    pub challenges: Vec<Challenge>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AuthStatus {
+    Pending,
     Valid,
     Invalid,
     Revoked,
     Expired,
+    Deactivated,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

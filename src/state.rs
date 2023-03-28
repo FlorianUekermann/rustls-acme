@@ -1,5 +1,5 @@
 use crate::acceptor::AcmeAcceptor;
-use crate::acme::{Account, AcmeError, Auth, Directory, Identifier, Order};
+use crate::acme::{Account, AcmeError, Auth, AuthStatus, Directory, Identifier, Order};
 use crate::{AcmeConfig, Incoming, ResolvesServerCertAcme};
 use async_io::Timer;
 use chrono::{DateTime, TimeZone, Utc};
@@ -282,34 +282,34 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         account: &Account,
         url: &String,
     ) -> Result<(), OrderError> {
-        let (domain, challenge_url) = match account.auth(&config.client_config, url).await? {
-            Auth::Pending {
-                identifier,
-                challenges,
-            } => {
-                let Identifier::Dns(domain) = identifier;
+        let auth = account.auth(&config.client_config, url).await?;
+        let (domain, challenge_url) = match auth.status {
+            AuthStatus::Pending => {
+                let Identifier::Dns(domain) = auth.identifier;
                 log::info!("trigger challenge for {}", &domain);
-                let (challenge, auth_key) = account.tls_alpn_01(&challenges, domain.clone())?;
+                let (challenge, auth_key) =
+                    account.tls_alpn_01(&auth.challenges, domain.clone())?;
                 resolver.set_auth_key(domain.clone(), Arc::new(auth_key));
                 account
                     .challenge(&config.client_config, &challenge.url)
                     .await?;
                 (domain, challenge.url.clone())
             }
-            Auth::Valid => return Ok(()),
-            auth => return Err(OrderError::BadAuth(auth)),
+            AuthStatus::Valid => return Ok(()),
+            _ => return Err(OrderError::BadAuth(auth)),
         };
         for i in 0u64..5 {
             Timer::after(Duration::from_secs(1u64 << i)).await;
-            match account.auth(&config.client_config, url).await? {
-                Auth::Pending { .. } => {
+            let auth = account.auth(&config.client_config, url).await?;
+            match auth.status {
+                AuthStatus::Pending => {
                     log::info!("authorization for {} still pending", &domain);
                     account
                         .challenge(&config.client_config, &challenge_url)
                         .await?
                 }
-                Auth::Valid => return Ok(()),
-                auth => return Err(OrderError::BadAuth(auth)),
+                AuthStatus::Valid => return Ok(()),
+                _ => return Err(OrderError::BadAuth(auth)),
             }
         }
         Err(OrderError::TooManyAttemptsAuth(domain))
