@@ -90,7 +90,7 @@ impl Account {
         client_config: &Arc<ClientConfig>,
         url: impl AsRef<str>,
         payload: &str,
-    ) -> Result<String, AcmeError> {
+    ) -> Result<(Option<String>, String), AcmeError> {
         let body = sign(
             &self.key_pair,
             Some(&self.kid),
@@ -99,21 +99,24 @@ impl Account {
             payload,
         )?;
         let mut response = https(client_config, url.as_ref(), Method::Post, Some(body)).await?;
+        let location = get_header(&response, "Location").ok();
         let body = response.body_string().await?;
         log::debug!("response: {:?}", body);
-        Ok(body)
+        Ok((location, body))
     }
     pub async fn new_order(
         &self,
         client_config: &Arc<ClientConfig>,
         domains: Vec<String>,
-    ) -> Result<Order, AcmeError> {
+    ) -> Result<(String, Order), AcmeError> {
         let domains: Vec<Identifier> = domains.into_iter().map(|d| Identifier::Dns(d)).collect();
         let payload = format!("{{\"identifiers\":{}}}", serde_json::to_string(&domains)?);
         let response = self
             .request(client_config, &self.directory.new_order, &payload)
-            .await;
-        Ok(serde_json::from_str(&response?)?)
+            .await?;
+        let url = response.0.ok_or(AcmeError::MissingHeader("Location"))?;
+        let order = serde_json::from_str(&response.1)?;
+        Ok((url, order))
     }
     pub async fn auth(
         &self,
@@ -121,8 +124,8 @@ impl Account {
         url: impl AsRef<str>,
     ) -> Result<Auth, AcmeError> {
         let payload = "".to_string();
-        let response = self.request(client_config, url, &payload).await;
-        Ok(serde_json::from_str(&response?)?)
+        let response = self.request(client_config, url, &payload).await?;
+        Ok(serde_json::from_str(&response.1)?)
     }
     pub async fn challenge(
         &self,
@@ -131,6 +134,14 @@ impl Account {
     ) -> Result<(), AcmeError> {
         self.request(client_config, &url, "{}").await?;
         Ok(())
+    }
+    pub async fn order(
+        &self,
+        client_config: &Arc<ClientConfig>,
+        url: impl AsRef<str>,
+    ) -> Result<Order, AcmeError> {
+        let response = self.request(client_config, &url, "").await?;
+        Ok(serde_json::from_str(&response.1)?)
     }
     pub async fn finalize(
         &self,
@@ -142,15 +153,15 @@ impl Account {
             "{{\"csr\":\"{}\"}}",
             base64::encode_config(csr, URL_SAFE_NO_PAD)
         );
-        let response = self.request(client_config, &url, &payload).await;
-        Ok(serde_json::from_str(&response?)?)
+        let response = self.request(client_config, &url, &payload).await?;
+        Ok(serde_json::from_str(&response.1)?)
     }
     pub async fn certificate(
         &self,
         client_config: &Arc<ClientConfig>,
         url: impl AsRef<str>,
     ) -> Result<String, AcmeError> {
-        self.request(client_config, &url, "").await
+        Ok(self.request(client_config, &url, "").await?.1)
     }
     pub fn tls_alpn_01<'a>(
         &self,
@@ -212,19 +223,23 @@ pub enum ChallengeType {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Order {
+    #[serde(flatten)]
+    pub status: OrderStatus,
+    pub authorizations: Vec<String>,
+    pub finalize: String,
+    pub error: Option<Problem>,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
 #[serde(tag = "status", rename_all = "camelCase")]
-pub enum Order {
-    Pending {
-        authorizations: Vec<String>,
-        finalize: String,
-    },
-    Ready {
-        finalize: String,
-    },
-    Valid {
-        certificate: String,
-    },
+pub enum OrderStatus {
+    Pending,
+    Ready,
+    Valid { certificate: String },
     Invalid,
+    Processing,
 }
 
 #[derive(Debug, Deserialize)]
@@ -258,6 +273,15 @@ pub struct Challenge {
     pub typ: ChallengeType,
     pub url: String,
     pub token: String,
+    pub error: Option<Problem>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Problem {
+    #[serde(rename = "type")]
+    pub typ: Option<String>,
+    pub detail: Option<String>,
 }
 
 #[derive(Error, Debug)]

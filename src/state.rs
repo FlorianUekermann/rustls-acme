@@ -1,5 +1,7 @@
 use crate::acceptor::AcmeAcceptor;
-use crate::acme::{Account, AcmeError, Auth, AuthStatus, Directory, Identifier, Order};
+use crate::acme::{
+    Account, AcmeError, Auth, AuthStatus, Directory, Identifier, Order, OrderStatus,
+};
 use crate::{AcmeConfig, Incoming, ResolvesServerCertAcme};
 use async_io::Timer;
 use chrono::{DateTime, TimeZone, Utc};
@@ -75,6 +77,8 @@ pub enum OrderError {
     BadAuth(Auth),
     #[error("authorization for {0} failed too many times")]
     TooManyAttemptsAuth(String),
+    #[error("order status stayed on processing too long")]
+    ProcessingTimeout(Order),
 }
 
 #[derive(Error, Debug)]
@@ -237,30 +241,41 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         params.alg = &PKCS_ECDSA_P256_SHA256;
         let cert = rcgen::Certificate::from_params(params)?;
 
-        let mut order = account
+        let (order_url, mut order) = account
             .new_order(&config.client_config, config.domains.clone())
             .await?;
         loop {
-            order = match order {
-                Order::Pending {
-                    authorizations,
-                    finalize,
-                } => {
-                    let auth_futures = authorizations
+            match order.status {
+                OrderStatus::Pending => {
+                    let auth_futures = order
+                        .authorizations
                         .iter()
                         .map(|url| Self::authorize(&config, &resolver, &account, url));
                     try_join_all(auth_futures).await?;
                     log::info!("completed all authorizations");
-                    Order::Ready { finalize }
+                    order = account.order(&config.client_config, &order_url).await?;
                 }
-                Order::Ready { finalize } => {
+                OrderStatus::Processing => {
+                    for i in 0u64..10 {
+                        log::info!("order processing");
+                        Timer::after(Duration::from_secs(1u64 << i)).await;
+                        order = account.order(&config.client_config, &order_url).await?;
+                        if order.status != OrderStatus::Processing {
+                            break;
+                        }
+                    }
+                    if order.status == OrderStatus::Processing {
+                        return Err(OrderError::ProcessingTimeout(order));
+                    }
+                }
+                OrderStatus::Ready => {
                     log::info!("sending csr");
                     let csr = cert.serialize_request_der()?;
-                    account
-                        .finalize(&config.client_config, finalize, csr)
+                    order = account
+                        .finalize(&config.client_config, order.finalize, csr)
                         .await?
                 }
-                Order::Valid { certificate } => {
+                OrderStatus::Valid { certificate } => {
                     log::info!("download certificate");
                     let pem = [
                         &cert.serialize_private_key_pem(),
@@ -272,7 +287,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                     .concat();
                     return Ok(pem.into_bytes());
                 }
-                Order::Invalid => return Err(OrderError::BadOrder(order)),
+                OrderStatus::Invalid => return Err(OrderError::BadOrder(order)),
             }
         }
     }
