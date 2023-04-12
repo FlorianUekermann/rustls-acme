@@ -101,9 +101,10 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
     >(
         self,
         tcp_incoming: ITCP,
+        alpn_protocols: Vec<Vec<u8>>,
     ) -> Incoming<TCP, ETCP, ITCP, EC, EA> {
         let acceptor = self.acceptor();
-        Incoming::new(tcp_incoming, self, acceptor)
+        Incoming::new(tcp_incoming, self, acceptor, alpn_protocols)
     }
     pub fn acceptor(&self) -> AcmeAcceptor {
         AcmeAcceptor::new(self.resolver())
@@ -116,6 +117,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
     >(
         self,
         tcp_incoming: TokioITCP,
+        alpn_protocols: Vec<Vec<u8>>,
     ) -> crate::tokio::TokioIncoming<
         tokio_util::compat::Compat<TokioTCP>,
         ETCP,
@@ -124,7 +126,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         EA,
     > {
         let tcp_incoming = crate::tokio::TokioIncomingTcpWrapper::from(tcp_incoming);
-        crate::tokio::TokioIncoming::from(self.incoming(tcp_incoming))
+        crate::tokio::TokioIncoming::from(self.incoming(tcp_incoming, alpn_protocols))
     }
     #[cfg(feature = "axum")]
     pub fn axum_acceptor(

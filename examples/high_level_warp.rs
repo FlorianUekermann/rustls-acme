@@ -43,7 +43,7 @@ async fn main() {
         .contact(args.email.iter().map(|e| format!("mailto:{}", e)))
         .cache_option(args.cache.clone().map(DirCache::new))
         .directory_lets_encrypt(args.prod)
-        .tokio_incoming(tcp_incoming);
+        .tokio_incoming(tcp_incoming, Vec::new());
 
     let route = warp::any().map(|| "Hello Tls!");
     warp::serve(route).run_incoming(tls_incoming).await;

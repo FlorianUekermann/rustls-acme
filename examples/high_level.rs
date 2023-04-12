@@ -44,7 +44,7 @@ async fn main() {
         .contact(args.email.iter().map(|e| format!("mailto:{}", e)))
         .cache_option(args.cache.clone().map(DirCache::new))
         .directory_lets_encrypt(args.prod)
-        .incoming(tcp_listener.incoming());
+        .incoming(tcp_listener.incoming(), Vec::new());
 
     while let Some(tls) = tls_incoming.next().await {
         let mut tls = tls.unwrap();

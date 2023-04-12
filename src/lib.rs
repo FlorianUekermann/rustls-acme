@@ -36,7 +36,7 @@
 //!     let mut tls_incoming = AcmeConfig::new(["example.com"])
 //!         .contact_push("mailto:admin@example.com")
 //!         .cache(DirCache::new("./rustls_acme_cache"))
-//!         .incoming(tcp_listener.incoming());
+//!         .incoming(tcp_listener.incoming(), Vec::new());
 //!
 //!     while let Some(tls) = tls_incoming.next().await {
 //!         let mut tls = tls.unwrap();

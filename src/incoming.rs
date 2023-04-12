@@ -43,11 +43,17 @@ impl<
         EA: Debug + 'static,
     > Incoming<TCP, ETCP, ITCP, EC, EA>
 {
-    pub fn new(tcp_incoming: ITCP, state: AcmeState<EC, EA>, acceptor: AcmeAcceptor) -> Self {
-        let config = ServerConfig::builder()
+    pub fn new(
+        tcp_incoming: ITCP,
+        state: AcmeState<EC, EA>,
+        acceptor: AcmeAcceptor,
+        alpn_protocols: Vec<Vec<u8>>,
+    ) -> Self {
+        let mut config = ServerConfig::builder()
             .with_safe_defaults()
             .with_no_client_auth()
             .with_cert_resolver(state.resolver());
+        config.alpn_protocols = alpn_protocols;
         Self {
             state,
             acceptor,

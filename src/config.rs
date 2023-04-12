@@ -143,6 +143,9 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
     pub fn state(self) -> AcmeState<EC, EA> {
         AcmeState::new(self)
     }
+    /// Turn a stream of TCP connections into a stream of TLS connections.
+    ///
+    /// Specify supported protocol names in `alpn_protocols`, most preferred first. If emtpy (`Vec::new()`), we don't do ALPN.
     pub fn incoming<
         TCP: AsyncRead + AsyncWrite + Unpin,
         ETCP,
@@ -150,10 +153,12 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
     >(
         self,
         tcp_incoming: ITCP,
+        alpn_protocols: Vec<Vec<u8>>,
     ) -> Incoming<TCP, ETCP, ITCP, EC, EA> {
-        self.state().incoming(tcp_incoming)
+        self.state().incoming(tcp_incoming, alpn_protocols)
     }
     #[cfg(feature = "tokio")]
+    /// Tokio compatible wrapper for [Self::incoming].
     pub fn tokio_incoming<
         TokioTCP: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
         ETCP,
@@ -161,6 +166,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
     >(
         self,
         tcp_incoming: TokioITCP,
+        alpn_protocols: Vec<Vec<u8>>,
     ) -> crate::tokio::TokioIncoming<
         tokio_util::compat::Compat<TokioTCP>,
         ETCP,
@@ -168,6 +174,6 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
         EC,
         EA,
     > {
-        self.state().tokio_incoming(tcp_incoming)
+        self.state().tokio_incoming(tcp_incoming, alpn_protocols)
     }
 }
