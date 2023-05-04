@@ -173,13 +173,13 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         if pems.len() < 2 {
             return Err(CertParseError::TooFewPem(pems.len()));
         }
-        let pk = match any_ecdsa_type(&PrivateKey(pems.remove(0).contents)) {
+        let pk = match any_ecdsa_type(&PrivateKey(pems.remove(0).into_contents())) {
             Ok(pk) => pk,
             Err(_) => return Err(CertParseError::InvalidPrivateKey),
         };
         let cert_chain: Vec<RustlsCertificate> = pems
             .into_iter()
-            .map(|p| RustlsCertificate(p.contents))
+            .map(|p| RustlsCertificate(p.into_contents()))
             .collect();
         let validity = match parse_x509_certificate(cert_chain[0].0.as_slice()) {
             Ok((_, cert)) => {
