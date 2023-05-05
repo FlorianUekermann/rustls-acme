@@ -40,7 +40,7 @@ simple_logger = "2.1.0"
 structopt = "0.3.26"
 clap = { version = "3.1.18", features = ["derive"] }
 smol-potat = "1.1.2"
-axum = "0.5.13"
+axum = "0.6"
 tokio = { version="1.19.2", features = ["full"] }
 tokio-stream = { version="0.1.9", features = ["net"] }
 tokio-util = { version="0.7.3", features = ["compat"] }
