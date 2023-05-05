@@ -8,7 +8,6 @@ use chrono::{DateTime, TimeZone, Utc};
 use futures::future::try_join_all;
 use futures::prelude::*;
 use futures::ready;
-use pin_project::pin_project;
 use rcgen::{CertificateParams, DistinguishedName, RcgenError, PKCS_ECDSA_P256_SHA256};
 use rustls::sign::{any_ecdsa_type, CertifiedKey};
 use rustls::Certificate as RustlsCertificate;
@@ -23,7 +22,6 @@ use std::time::Duration;
 use thiserror::Error;
 use x509_parser::parse_x509_certificate;
 
-#[pin_project()]
 pub struct AcmeState<EC: Debug = Infallible, EA: Debug = EC> {
     config: Arc<AcmeConfig<EC, EA>>,
     resolver: Arc<ResolvesServerCertAcme>,
