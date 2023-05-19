@@ -2,12 +2,17 @@ use crate::acme::{LETS_ENCRYPT_PRODUCTION_DIRECTORY, LETS_ENCRYPT_STAGING_DIRECT
 use crate::caches::{BoxedErrCache, CompositeCache, NoCache};
 use crate::{AccountCache, Cache, CertCache};
 use crate::{AcmeState, Incoming};
-use futures::{AsyncRead, AsyncWrite, Stream};
+use futures::Stream;
 use rustls::{ClientConfig, RootCertStore};
 use std::convert::Infallible;
 use std::fmt::Debug;
 use std::sync::Arc;
 use webpki_roots::TLS_SERVER_ROOTS;
+
+#[cfg(feature = "async-std")]
+use futures::{AsyncRead, AsyncWrite};
+#[cfg(feature = "tokio")]
+use tokio::io::{AsyncRead, AsyncWrite};
 
 /// Configuration for an ACME resolver.
 ///
@@ -156,24 +161,5 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
         alpn_protocols: Vec<Vec<u8>>,
     ) -> Incoming<TCP, ETCP, ITCP, EC, EA> {
         self.state().incoming(tcp_incoming, alpn_protocols)
-    }
-    #[cfg(feature = "tokio")]
-    /// Tokio compatible wrapper for [Self::incoming].
-    pub fn tokio_incoming<
-        TokioTCP: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-        ETCP,
-        TokioITCP: Stream<Item = Result<TokioTCP, ETCP>> + Unpin,
-    >(
-        self,
-        tcp_incoming: TokioITCP,
-        alpn_protocols: Vec<Vec<u8>>,
-    ) -> crate::tokio::TokioIncoming<
-        tokio_util::compat::Compat<TokioTCP>,
-        ETCP,
-        crate::tokio::TokioIncomingTcpWrapper<TokioTCP, ETCP, TokioITCP>,
-        EC,
-        EA,
-    > {
-        self.state().tokio_incoming(tcp_incoming, alpn_protocols)
     }
 }

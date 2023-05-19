@@ -24,6 +24,8 @@
 //! well as accepting TLS connections, which are handed over to the caller on success.
 //!
 //! ```rust,no_run
+//! #[cfg(feature = "async-std")]
+//! {
 //! use futures::prelude::*;
 //! use rustls_acme::{AcmeConfig, caches::DirCache};
 //!
@@ -52,6 +54,7 @@
 //! Content-Type: text/plain; charset=utf-8
 //!
 //! Hello Tls!"#;
+//! }
 //! ```
 //!
 //! `examples/high_level.rs` implements a "Hello Tls!" server similar to the one above, which accepts
@@ -119,10 +122,11 @@ mod incoming;
 mod jose;
 mod resolver;
 mod state;
-#[cfg(feature = "tokio")]
-pub mod tokio;
 
+#[cfg(feature = "async-std")]
 pub use futures_rustls;
+#[cfg(feature = "tokio")]
+pub use tokio_rustls;
 
 pub use acceptor::*;
 pub use cache::*;

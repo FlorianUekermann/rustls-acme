@@ -1,13 +1,22 @@
 use crate::acme::ACME_TLS_ALPN_NAME;
 use crate::ResolvesServerCertAcme;
-use futures::prelude::*;
-use futures_rustls::{Accept, LazyConfigAcceptor, StartHandshake};
 use rustls::server::Acceptor;
 use rustls::ServerConfig;
+use std::future::Future;
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+
+#[cfg(feature = "async-std")]
+use futures::{AsyncRead, AsyncWrite};
+#[cfg(feature = "async-std")]
+use futures_rustls::{Accept, LazyConfigAcceptor, StartHandshake};
+
+#[cfg(feature = "tokio")]
+use tokio::io::{AsyncRead, AsyncWrite};
+#[cfg(feature = "tokio")]
+use tokio_rustls::{Accept, LazyConfigAcceptor, StartHandshake};
 
 #[derive(Clone)]
 pub struct AcmeAcceptor {

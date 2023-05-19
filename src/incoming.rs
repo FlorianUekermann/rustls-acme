@@ -1,14 +1,22 @@
 use crate::acceptor::{AcmeAccept, AcmeAcceptor};
 use crate::AcmeState;
 use futures::stream::{FusedStream, FuturesUnordered};
-use futures::{AsyncRead, AsyncWrite, Stream};
-use futures_rustls::server::TlsStream;
-use futures_rustls::Accept;
+use futures::Stream;
 use rustls::ServerConfig;
 use std::fmt::Debug;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+
+#[cfg(feature = "async-std")]
+use futures::{AsyncRead, AsyncWrite};
+#[cfg(feature = "async-std")]
+use futures_rustls::{server::TlsStream, Accept};
+
+#[cfg(feature = "tokio")]
+use tokio::io::{AsyncRead, AsyncWrite};
+#[cfg(feature = "tokio")]
+use tokio_rustls::{server::TlsStream, Accept};
 
 pub struct Incoming<
     TCP: AsyncRead + AsyncWrite + Unpin,

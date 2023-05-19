@@ -4,6 +4,11 @@ use ring::digest::{Context, SHA256};
 use std::io::ErrorKind;
 use std::path::Path;
 
+#[cfg(feature = "async-std")]
+use smol::fs;
+#[cfg(feature = "tokio")]
+use tokio::fs;
+
 pub struct DirCache<P: AsRef<Path> + Send + Sync> {
     inner: P,
 }
@@ -17,7 +22,7 @@ impl<P: AsRef<Path> + Send + Sync> DirCache<P> {
         file: impl AsRef<Path>,
     ) -> Result<Option<Vec<u8>>, std::io::Error> {
         let path = self.inner.as_ref().join(file);
-        match smol::fs::read(path).await {
+        match fs::read(path).await {
             Ok(content) => Ok(Some(content)),
             Err(err) => match err.kind() {
                 ErrorKind::NotFound => Ok(None),
@@ -30,9 +35,9 @@ impl<P: AsRef<Path> + Send + Sync> DirCache<P> {
         file: impl AsRef<Path>,
         contents: impl AsRef<[u8]>,
     ) -> Result<(), std::io::Error> {
-        smol::fs::create_dir_all(&self.inner).await?;
+        fs::create_dir_all(&self.inner).await?;
         let path = self.inner.as_ref().join(file);
-        Ok(smol::fs::write(path, contents).await?)
+        Ok(fs::write(path, contents).await?)
     }
     fn cached_account_file_name(contact: &[String], directory_url: impl AsRef<str>) -> String {
         let mut ctx = Context::new(&SHA256);

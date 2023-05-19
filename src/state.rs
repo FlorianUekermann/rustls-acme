@@ -3,11 +3,9 @@ use crate::acme::{
     Account, AcmeError, Auth, AuthStatus, Directory, Identifier, Order, OrderStatus,
 };
 use crate::{AcmeConfig, Incoming, ResolvesServerCertAcme};
-use async_io::Timer;
 use chrono::{DateTime, TimeZone, Utc};
 use futures::future::try_join_all;
-use futures::prelude::*;
-use futures::ready;
+use futures::{ready, Stream, FutureExt};
 use rcgen::{CertificateParams, DistinguishedName, RcgenError, PKCS_ECDSA_P256_SHA256};
 use rustls::sign::{any_ecdsa_type, CertifiedKey};
 use rustls::Certificate as RustlsCertificate;
@@ -22,6 +20,33 @@ use std::time::Duration;
 use thiserror::Error;
 use x509_parser::parse_x509_certificate;
 
+#[cfg(feature = "async-std")]
+use futures::{AsyncRead, AsyncWrite};
+#[cfg(feature = "tokio")]
+use tokio::io::{AsyncRead, AsyncWrite};
+
+
+#[cfg(feature = "async-std")]
+mod time {
+    pub use async_io::Timer;
+
+    pub fn after(d: std::time::Duration) -> Timer {
+        Timer::after(d)
+    }
+}
+
+#[cfg(feature = "tokio")]
+mod time {
+    use tokio::time::Sleep;
+
+    pub type Timer = std::pin::Pin<Box<Sleep>>;
+    
+    pub fn after(d: std::time::Duration) -> Timer {
+        Box::pin(tokio::time::sleep(d))
+    }
+}
+
+
 pub struct AcmeState<EC: Debug = Infallible, EA: Debug = EC> {
     config: Arc<AcmeConfig<EC, EA>>,
     resolver: Arc<ResolvesServerCertAcme>,
@@ -32,7 +57,7 @@ pub struct AcmeState<EC: Debug = Infallible, EA: Debug = EC> {
     load_account: Option<Pin<Box<dyn Future<Output = Result<Option<Vec<u8>>, EA>> + Send>>>,
     order: Option<Pin<Box<dyn Future<Output = Result<Vec<u8>, OrderError>> + Send>>>,
     backoff_cnt: usize,
-    wait: Option<Timer>,
+    wait: Option<time::Timer>,
 }
 
 pub type Event<EC, EA> = Result<EventOk, EventError<EC, EA>>;
@@ -107,25 +132,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
     pub fn acceptor(&self) -> AcmeAcceptor {
         AcmeAcceptor::new(self.resolver())
     }
-    #[cfg(feature = "tokio")]
-    pub fn tokio_incoming<
-        TokioTCP: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-        ETCP,
-        TokioITCP: Stream<Item = Result<TokioTCP, ETCP>> + Unpin,
-    >(
-        self,
-        tcp_incoming: TokioITCP,
-        alpn_protocols: Vec<Vec<u8>>,
-    ) -> crate::tokio::TokioIncoming<
-        tokio_util::compat::Compat<TokioTCP>,
-        ETCP,
-        crate::tokio::TokioIncomingTcpWrapper<TokioTCP, ETCP, TokioITCP>,
-        EC,
-        EA,
-    > {
-        let tcp_incoming = crate::tokio::TokioIncomingTcpWrapper::from(tcp_incoming);
-        crate::tokio::TokioIncoming::from(self.incoming(tcp_incoming, alpn_protocols))
-    }
+
     #[cfg(feature = "axum")]
     pub fn axum_acceptor(
         &self,
@@ -205,7 +212,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             .max(chrono::Duration::zero())
             .to_std()
             .unwrap_or_default();
-        self.wait = Some(Timer::after(wait_duration));
+        self.wait = Some(time::after(wait_duration));
         if cached {
             return Ok(EventOk::DeployedCachedCert);
         }
@@ -258,7 +265,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                 OrderStatus::Processing => {
                     for i in 0u64..10 {
                         log::info!("order processing");
-                        Timer::after(Duration::from_secs(1u64 << i)).await;
+                        time::after(Duration::from_secs(1u64 << i)).await;
                         order = account.order(&config.client_config, &order_url).await?;
                         if order.status != OrderStatus::Processing {
                             break;
@@ -314,7 +321,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             _ => return Err(OrderError::BadAuth(auth)),
         };
         for i in 0u64..5 {
-            Timer::after(Duration::from_secs(1u64 << i)).await;
+            time::after(Duration::from_secs(1u64 << i)).await;
             let auth = account.auth(&config.client_config, url).await?;
             match auth.status {
                 AuthStatus::Pending => {
@@ -379,7 +386,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                     }
                     Err(err) => {
                         // TODO: replace key on some errors or high backoff_cnt?
-                        self.wait = Some(Timer::after(Duration::from_secs(1 << self.backoff_cnt)));
+                        self.wait = Some(time::after(Duration::from_secs(1 << self.backoff_cnt)));
                         self.backoff_cnt = (self.backoff_cnt + 1).min(16);
                         return Poll::Ready(Err(EventError::Order(err)));
                     }

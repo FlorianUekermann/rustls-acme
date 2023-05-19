@@ -7,8 +7,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio_stream::StreamExt;
-use tokio_util::compat::FuturesAsyncReadCompatExt;
-use tokio_util::compat::TokioAsyncReadCompatExt;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -66,7 +64,7 @@ async fn serve(acceptor: AcmeAcceptor, rustls_config: Arc<ServerConfig>, port: u
         .await
         .unwrap();
     loop {
-        let tcp = listener.accept().await.unwrap().0.compat();
+        let tcp = listener.accept().await.unwrap().0;
         let rustls_config = rustls_config.clone();
         let accept_future = acceptor.accept(tcp);
 
@@ -74,11 +72,7 @@ async fn serve(acceptor: AcmeAcceptor, rustls_config: Arc<ServerConfig>, port: u
             match accept_future.await.unwrap() {
                 None => log::info!("received TLS-ALPN-01 validation request"),
                 Some(start_handshake) => {
-                    let mut tls = start_handshake
-                        .into_stream(rustls_config)
-                        .await
-                        .unwrap()
-                        .compat();
+                    let mut tls = start_handshake.into_stream(rustls_config).await.unwrap();
                     tls.write_all(HELLO).await.unwrap();
                     tls.shutdown().await.unwrap();
                 }

@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-use crate::https_helper::{https, HttpsRequestError};
+use crate::https_helper::{https, HttpsRequestError, Method, Response};
 use crate::jose::{key_authorization_sha256, sign, JoseError};
 use base64::URL_SAFE_NO_PAD;
-use http_types::{Method, Response};
 use rcgen::{Certificate, CustomExtension, RcgenError, PKCS_ECDSA_P256_SHA256};
 use ring::error::{KeyRejected, Unspecified};
 use ring::rand::SystemRandom;
@@ -98,9 +97,13 @@ impl Account {
             url.as_ref(),
             payload,
         )?;
+        #[allow(unused_mut)]
         let mut response = https(client_config, url.as_ref(), Method::Post, Some(body)).await?;
         let location = get_header(&response, "Location").ok();
+        #[cfg(feature = "async-std")]
         let body = response.body_string().await?;
+        #[cfg(feature = "tokio")]
+        let body = response.text().await.map_err(HttpsRequestError::from)?;
         log::debug!("response: {:?}", body);
         Ok((location, body))
     }
@@ -200,10 +203,14 @@ impl Directory {
         client_config: &Arc<ClientConfig>,
         url: impl AsRef<str>,
     ) -> Result<Self, AcmeError> {
-        let body = https(client_config, url, Method::Get, None)
-            .await?
-            .body_bytes()
-            .await?;
+        #[allow(unused_mut)]
+        let mut response = https(client_config, url, Method::Get, None).await?;
+
+        #[cfg(feature = "async-std")]
+        let body = response.body_bytes().await?;
+        #[cfg(feature = "tokio")]
+        let body = response.bytes().await.map_err(HttpsRequestError::from)?;
+
         Ok(serde_json::from_slice(&body)?)
     }
     pub async fn nonce(&self, client_config: &Arc<ClientConfig>) -> Result<String, AcmeError> {
@@ -306,6 +313,7 @@ pub enum AcmeError {
     NoTlsAlpn01Challenge,
 }
 
+#[cfg(feature = "async-std")]
 impl From<http_types::Error> for AcmeError {
     fn from(e: http_types::Error) -> Self {
         Self::HttpRequest(HttpsRequestError::from(e))
@@ -313,8 +321,19 @@ impl From<http_types::Error> for AcmeError {
 }
 
 fn get_header(response: &Response, header: &'static str) -> Result<String, AcmeError> {
-    match response.header(header) {
+    #[cfg(feature = "async-std")]
+    let h = response.header(header).map(|v| v.last().to_string());
+
+    #[cfg(feature = "tokio")]
+    let h = response
+        .headers()
+        .get_all(header)
+        .iter()
+        .last()
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    match h {
         None => Err(AcmeError::MissingHeader(header)),
-        Some(values) => Ok(values.last().to_string()),
+        Some(value) => Ok(value),
     }
 }
