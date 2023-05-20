@@ -145,7 +145,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
     }
     /// Turn a stream of TCP connections into a stream of TLS connections.
     ///
-    /// Specify supported protocol names in `alpn_protocols`, most preferred first. If emtpy (`Vec::new()`), we don't do ALPN.
+    /// Specify supported protocol names in `alpn_protocols`, most preferred first. If empty (`Vec::new()`), we don't do ALPN.
     pub fn incoming<
         TCP: AsyncRead + AsyncWrite + Unpin,
         ETCP,
