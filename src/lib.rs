@@ -84,7 +84,7 @@
 //! Note, that the error type parameters of the cache carries over to some other types in this
 //! crate via the [AcmeConfig] they are added to.
 //! If you want to avoid different specializations based on cache type use the
-//! [AcmeConfig::cache_with_boxed_err] method to construct the an [AcmeConfig] object.
+//! [AcmeConfig::cache_with_boxed_err] method to construct an [AcmeConfig] object.
 //!
 //!
 //! ## The acme module
