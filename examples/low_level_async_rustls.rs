@@ -1,3 +1,4 @@
+use async_rustls::LazyConfigAcceptor;
 use clap::Parser;
 use futures::AsyncWriteExt;
 use futures::StreamExt;
@@ -71,7 +72,7 @@ async fn main() {
         let acme_rustls_config = acme_rustls_config.clone();
 
         spawn(async move {
-            let start_handshake = async_rustls::LazyConfigAcceptor::new(Default::default(), tcp.unwrap()).await.unwrap();
+            let start_handshake = LazyConfigAcceptor::new(Default::default(), tcp.unwrap()).await.unwrap();
 
             let is_validation = start_handshake.client_hello().alpn().into_iter().flatten().eq([ACME_TLS_ALPN_NAME]);
             if is_validation {
