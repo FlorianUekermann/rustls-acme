@@ -36,9 +36,7 @@ async fn main() {
     simple_logger::init_with_level(log::Level::Info).unwrap();
     let args = Args::parse();
 
-    let tcp_listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, args.port))
-        .await
-        .unwrap();
+    let tcp_listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, args.port)).await.unwrap();
 
     let mut tls_incoming = AcmeConfig::new(args.domains)
         .contact(args.email.iter().map(|e| format!("mailto:{}", e)))

@@ -18,16 +18,11 @@ pub struct AxumAcceptor {
 
 impl AxumAcceptor {
     pub fn new(acme_acceptor: AcmeAcceptor, config: Arc<ServerConfig>) -> Self {
-        Self {
-            acme_acceptor,
-            config,
-        }
+        Self { acme_acceptor, config }
     }
 }
 
-impl<I: AsyncRead + AsyncWrite + Unpin + Send + 'static, S: Send + 'static>
-    axum_server::accept::Accept<I, S> for AxumAcceptor
-{
+impl<I: AsyncRead + AsyncWrite + Unpin + Send + 'static, S: Send + 'static> axum_server::accept::Accept<I, S> for AxumAcceptor {
     type Stream = Compat<futures_rustls::server::TlsStream<Compat<I>>>;
     type Service = S;
     type Future = AxumAccept<I, S>;
@@ -50,23 +45,16 @@ pub struct AxumAccept<I: AsyncRead + AsyncWrite + Unpin + Send + 'static, S: Sen
     service: Option<S>,
 }
 
-impl<I: AsyncRead + AsyncWrite + Unpin + Send + 'static, S: Send + 'static> Unpin
-    for AxumAccept<I, S>
-{
-}
+impl<I: AsyncRead + AsyncWrite + Unpin + Send + 'static, S: Send + 'static> Unpin for AxumAccept<I, S> {}
 
-impl<I: AsyncRead + AsyncWrite + Unpin + Send + 'static, S: Send + 'static> Future
-    for AxumAccept<I, S>
-{
+impl<I: AsyncRead + AsyncWrite + Unpin + Send + 'static, S: Send + 'static> Future for AxumAccept<I, S> {
     type Output = io::Result<(Compat<futures_rustls::server::TlsStream<Compat<I>>>, S)>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         loop {
             if let Some(tls_accept) = &mut self.tls_accept {
                 return match Pin::new(&mut *tls_accept).poll(cx) {
-                    Poll::Ready(Ok(tls)) => {
-                        Poll::Ready(Ok((tls.compat(), self.service.take().unwrap())))
-                    }
+                    Poll::Ready(Ok(tls)) => Poll::Ready(Ok((tls.compat(), self.service.take().unwrap()))),
                     Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
                     Poll::Pending => Poll::Pending,
                 };
@@ -77,10 +65,7 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send + 'static, S: Send + 'static> Futu
                     self.tls_accept = Some(start_handshake.into_stream(config));
                     continue;
                 }
-                Poll::Ready(Ok(None)) => Poll::Ready(Err(io::Error::new(
-                    ErrorKind::Other,
-                    "TLS-ALPN-01 validation request",
-                ))),
+                Poll::Ready(Ok(None)) => Poll::Ready(Err(io::Error::new(ErrorKind::Other, "TLS-ALPN-01 validation request"))),
                 Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
                 Poll::Pending => Poll::Pending,
             };

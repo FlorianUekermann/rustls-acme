@@ -49,13 +49,12 @@ impl AcmeConfig<Infallible, Infallible> {
     ///
     pub fn new(domains: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
         let mut root_store = RootCertStore::empty();
-        root_store.add_server_trust_anchors(TLS_SERVER_ROOTS.0.iter().map(|ta| {
-            rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-                ta.subject,
-                ta.spki,
-                ta.name_constraints,
-            )
-        }));
+        root_store.add_server_trust_anchors(
+            TLS_SERVER_ROOTS
+                .0
+                .iter()
+                .map(|ta| rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(ta.subject, ta.spki, ta.name_constraints)),
+        );
         let client_config = Arc::new(
             ClientConfig::builder()
                 .with_safe_defaults()
@@ -124,11 +123,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
             cache: Box::new(cache),
         }
     }
-    pub fn cache_compose<CC: 'static + CertCache, CA: 'static + AccountCache>(
-        self,
-        cert_cache: CC,
-        account_cache: CA,
-    ) -> AcmeConfig<CC::EC, CA::EA> {
+    pub fn cache_compose<CC: 'static + CertCache, CA: 'static + AccountCache>(self, cert_cache: CC, account_cache: CA) -> AcmeConfig<CC::EC, CA::EA> {
         self.cache(CompositeCache::new(cert_cache, account_cache))
     }
     pub fn cache_with_boxed_err<C: 'static + Cache>(self, cache: C) -> AcmeConfig<Box<dyn Debug>> {
@@ -146,11 +141,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
     /// Turn a stream of TCP connections into a stream of TLS connections.
     ///
     /// Specify supported protocol names in `alpn_protocols`, most preferred first. If empty (`Vec::new()`), we don't do ALPN.
-    pub fn incoming<
-        TCP: AsyncRead + AsyncWrite + Unpin,
-        ETCP,
-        ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin,
-    >(
+    pub fn incoming<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin>(
         self,
         tcp_incoming: ITCP,
         alpn_protocols: Vec<Vec<u8>>,

@@ -5,13 +5,7 @@ use ring::signature::{EcdsaKeyPair, KeyPair};
 use serde::Serialize;
 use thiserror::Error;
 
-pub(crate) fn sign(
-    key: &EcdsaKeyPair,
-    kid: Option<&str>,
-    nonce: String,
-    url: &str,
-    payload: &str,
-) -> Result<String, JoseError> {
+pub(crate) fn sign(key: &EcdsaKeyPair, kid: Option<&str>, nonce: String, url: &str, payload: &str) -> Result<String, JoseError> {
     let jwk = match kid {
         None => Some(Jwk::new(key)),
         Some(_) => None,
@@ -29,10 +23,7 @@ pub(crate) fn sign(
     Ok(serde_json::to_string(&body)?)
 }
 
-pub(crate) fn key_authorization_sha256(
-    key: &EcdsaKeyPair,
-    token: &str,
-) -> Result<Digest, JoseError> {
+pub(crate) fn key_authorization_sha256(key: &EcdsaKeyPair, token: &str) -> Result<Digest, JoseError> {
     let jwk = Jwk::new(key);
     let key_authorization = format!("{}.{}", token, jwk.thumb_sha256_base64()?);
     Ok(digest(&SHA256, key_authorization.as_bytes()))
@@ -57,12 +48,7 @@ struct Protected<'a> {
 }
 
 impl<'a> Protected<'a> {
-    fn base64(
-        jwk: Option<Jwk>,
-        kid: Option<&'a str>,
-        nonce: String,
-        url: &'a str,
-    ) -> Result<String, JoseError> {
+    fn base64(jwk: Option<Jwk>, kid: Option<&'a str>, nonce: String, url: &'a str) -> Result<String, JoseError> {
         let protected = Self {
             alg: "ES256",
             jwk,

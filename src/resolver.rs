@@ -33,11 +33,7 @@ impl ResolvesServerCertAcme {
 
 impl ResolvesServerCert for ResolvesServerCertAcme {
     fn resolve(&self, client_hello: ClientHello) -> Option<Arc<CertifiedKey>> {
-        let is_acme_challenge = client_hello
-            .alpn()
-            .into_iter()
-            .flatten()
-            .eq([ACME_TLS_ALPN_NAME]);
+        let is_acme_challenge = client_hello.alpn().into_iter().flatten().eq([ACME_TLS_ALPN_NAME]);
         if is_acme_challenge {
             match client_hello.server_name() {
                 None => {

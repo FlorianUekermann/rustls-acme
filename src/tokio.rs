@@ -15,22 +15,16 @@ pub struct TokioIncomingTcpWrapper<
     incoming_tcp: TokioITCP,
 }
 
-impl<
-        TokioTCP: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-        ETCP,
-        TokioITCP: Stream<Item = Result<TokioTCP, ETCP>> + Unpin,
-    > TokioIncomingTcpWrapper<TokioTCP, ETCP, TokioITCP>
+impl<TokioTCP: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, ETCP, TokioITCP: Stream<Item = Result<TokioTCP, ETCP>> + Unpin>
+    TokioIncomingTcpWrapper<TokioTCP, ETCP, TokioITCP>
 {
     pub fn into_inner(self) -> TokioITCP {
         self.incoming_tcp
     }
 }
 
-impl<
-        TokioTCP: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-        ETCP,
-        TokioITCP: Stream<Item = Result<TokioTCP, ETCP>> + Unpin,
-    > Stream for TokioIncomingTcpWrapper<TokioTCP, ETCP, TokioITCP>
+impl<TokioTCP: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, ETCP, TokioITCP: Stream<Item = Result<TokioTCP, ETCP>> + Unpin> Stream
+    for TokioIncomingTcpWrapper<TokioTCP, ETCP, TokioITCP>
 {
     type Item = Result<tokio_util::compat::Compat<TokioTCP>, ETCP>;
 
@@ -44,11 +38,8 @@ impl<
     }
 }
 
-impl<
-        TokioTCP: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-        ETCP,
-        TokioITCP: Stream<Item = Result<TokioTCP, ETCP>> + Unpin,
-    > From<TokioITCP> for TokioIncomingTcpWrapper<TokioTCP, ETCP, TokioITCP>
+impl<TokioTCP: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, ETCP, TokioITCP: Stream<Item = Result<TokioTCP, ETCP>> + Unpin> From<TokioITCP>
+    for TokioIncomingTcpWrapper<TokioTCP, ETCP, TokioITCP>
 {
     fn from(incoming_tcp: TokioITCP) -> Self {
         Self { incoming_tcp }
@@ -65,13 +56,8 @@ pub struct TokioIncoming<
     incoming: Incoming<TCP, ETCP, ITCP, EC, EA>,
 }
 
-impl<
-        TCP: AsyncRead + AsyncWrite + Unpin,
-        ETCP,
-        ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin,
-        EC: Debug + 'static,
-        EA: Debug + 'static,
-    > Stream for TokioIncoming<TCP, ETCP, ITCP, EC, EA>
+impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin, EC: Debug + 'static, EA: Debug + 'static> Stream
+    for TokioIncoming<TCP, ETCP, ITCP, EC, EA>
 {
     type Item = Result<tokio_util::compat::Compat<TlsStream<TCP>>, ETCP>;
 
@@ -85,26 +71,16 @@ impl<
     }
 }
 
-impl<
-        TCP: AsyncRead + AsyncWrite + Unpin,
-        ETCP,
-        ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin,
-        EC: Debug + 'static,
-        EA: Debug + 'static,
-    > From<Incoming<TCP, ETCP, ITCP, EC, EA>> for TokioIncoming<TCP, ETCP, ITCP, EC, EA>
+impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin, EC: Debug + 'static, EA: Debug + 'static>
+    From<Incoming<TCP, ETCP, ITCP, EC, EA>> for TokioIncoming<TCP, ETCP, ITCP, EC, EA>
 {
     fn from(incoming: Incoming<TCP, ETCP, ITCP, EC, EA>) -> Self {
         Self { incoming }
     }
 }
 
-impl<
-        TCP: AsyncRead + AsyncWrite + Unpin,
-        ETCP,
-        ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin,
-        EC: Debug + 'static,
-        EA: Debug + 'static,
-    > From<TokioIncoming<TCP, ETCP, ITCP, EC, EA>> for Incoming<TCP, ETCP, ITCP, EC, EA>
+impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin, EC: Debug + 'static, EA: Debug + 'static>
+    From<TokioIncoming<TCP, ETCP, ITCP, EC, EA>> for Incoming<TCP, ETCP, ITCP, EC, EA>
 {
     fn from(tokio_incoming: TokioIncoming<TCP, ETCP, ITCP, EC, EA>) -> Self {
         tokio_incoming.incoming

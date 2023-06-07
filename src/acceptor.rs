@@ -21,9 +21,7 @@ impl AcmeAcceptor {
             .with_no_client_auth()
             .with_cert_resolver(resolver.clone());
         config.alpn_protocols.push(ACME_TLS_ALPN_NAME.to_vec());
-        Self {
-            config: Arc::new(config),
-        }
+        Self { config: Arc::new(config) }
     }
     pub fn accept<IO: AsyncRead + AsyncWrite + Unpin>(&self, io: IO) -> AcmeAccept<IO> {
         AcmeAccept::new(io, self.config.clone())
@@ -61,12 +59,7 @@ impl<IO: AsyncRead + AsyncWrite + Unpin> Future for AcmeAccept<IO> {
 
             return match Pin::new(&mut self.acceptor).poll(cx) {
                 Poll::Ready(Ok(handshake)) => {
-                    let is_validation = handshake
-                        .client_hello()
-                        .alpn()
-                        .into_iter()
-                        .flatten()
-                        .eq([ACME_TLS_ALPN_NAME]);
+                    let is_validation = handshake.client_hello().alpn().into_iter().flatten().eq([ACME_TLS_ALPN_NAME]);
                     if is_validation {
                         self.validation_accept = Some(handshake.into_stream(self.config.clone()));
                         continue;

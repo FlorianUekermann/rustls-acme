@@ -30,9 +30,7 @@ pub(crate) async fn https(
     };
     let tcp = TcpStream::connect((host, port)).await?;
     let domain = ServerName::try_from(host)?;
-    let tls = TlsConnector::from(client_config.clone())
-        .connect(domain, tcp)
-        .await?;
+    let tls = TlsConnector::from(client_config.clone()).connect(domain, tcp).await?;
     let mut response = async_h1::connect(tls, request).await?;
     let status = response.status();
     if !status.is_success() {

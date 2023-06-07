@@ -25,30 +25,15 @@ pub struct Incoming<
     tls_accepting: FuturesUnordered<Accept<TCP>>,
 }
 
-impl<
-        TCP: AsyncRead + AsyncWrite + Unpin,
-        ETCP,
-        ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin,
-        EC: Debug + 'static,
-        EA: Debug + 'static,
-    > Unpin for Incoming<TCP, ETCP, ITCP, EC, EA>
+impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin, EC: Debug + 'static, EA: Debug + 'static> Unpin
+    for Incoming<TCP, ETCP, ITCP, EC, EA>
 {
 }
 
-impl<
-        TCP: AsyncRead + AsyncWrite + Unpin,
-        ETCP,
-        ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin,
-        EC: Debug + 'static,
-        EA: Debug + 'static,
-    > Incoming<TCP, ETCP, ITCP, EC, EA>
+impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin, EC: Debug + 'static, EA: Debug + 'static>
+    Incoming<TCP, ETCP, ITCP, EC, EA>
 {
-    pub fn new(
-        tcp_incoming: ITCP,
-        state: AcmeState<EC, EA>,
-        acceptor: AcmeAcceptor,
-        alpn_protocols: Vec<Vec<u8>>,
-    ) -> Self {
+    pub fn new(tcp_incoming: ITCP, state: AcmeState<EC, EA>, acceptor: AcmeAcceptor, alpn_protocols: Vec<Vec<u8>>) -> Self {
         let mut config = ServerConfig::builder()
             .with_safe_defaults()
             .with_no_client_auth()
@@ -65,13 +50,8 @@ impl<
     }
 }
 
-impl<
-        TCP: AsyncRead + AsyncWrite + Unpin,
-        ETCP,
-        ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin,
-        EC: Debug + 'static,
-        EA: Debug + 'static,
-    > Stream for Incoming<TCP, ETCP, ITCP, EC, EA>
+impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin, EC: Debug + 'static, EA: Debug + 'static> Stream
+    for Incoming<TCP, ETCP, ITCP, EC, EA>
 {
     type Item = Result<TlsStream<TCP>, ETCP>;
 
@@ -89,9 +69,7 @@ impl<
                 Poll::Pending => {}
             }
             match Pin::new(&mut self.acme_accepting).poll_next(cx) {
-                Poll::Ready(Some(Ok(Some(tls)))) => self
-                    .tls_accepting
-                    .push(tls.into_stream(self.rustls_config.clone())),
+                Poll::Ready(Some(Ok(Some(tls)))) => self.tls_accepting.push(tls.into_stream(self.rustls_config.clone())),
                 Poll::Ready(Some(Ok(None))) => {
                     log::info!("received TLS-ALPN-01 validation request");
                     continue;
@@ -127,17 +105,10 @@ impl<
     }
 }
 
-impl<
-        TCP: AsyncRead + AsyncWrite + Unpin,
-        ETCP,
-        ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin,
-        EC: Debug + 'static,
-        EA: Debug + 'static,
-    > FusedStream for Incoming<TCP, ETCP, ITCP, EC, EA>
+impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin, EC: Debug + 'static, EA: Debug + 'static> FusedStream
+    for Incoming<TCP, ETCP, ITCP, EC, EA>
 {
     fn is_terminated(&self) -> bool {
-        self.tcp_incoming.is_none()
-            && self.acme_accepting.is_terminated()
-            && self.tls_accepting.is_terminated()
+        self.tcp_incoming.is_none() && self.acme_accepting.is_terminated() && self.tls_accepting.is_terminated()
     }
 }

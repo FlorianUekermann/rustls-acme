@@ -25,27 +25,12 @@ where
     <T as CertCache>::EC: 'static,
 {
     type EC = Box<dyn Debug>;
-    async fn load_cert(
-        &self,
-        domains: &[String],
-        directory_url: &str,
-    ) -> Result<Option<Vec<u8>>, Self::EC> {
-        self.inner
-            .load_cert(domains, directory_url)
-            .await
-            .map_err(box_err)
+    async fn load_cert(&self, domains: &[String], directory_url: &str) -> Result<Option<Vec<u8>>, Self::EC> {
+        self.inner.load_cert(domains, directory_url).await.map_err(box_err)
     }
 
-    async fn store_cert(
-        &self,
-        domains: &[String],
-        directory_url: &str,
-        cert: &[u8],
-    ) -> Result<(), Self::EC> {
-        self.inner
-            .store_cert(domains, directory_url, cert)
-            .await
-            .map_err(box_err)
+    async fn store_cert(&self, domains: &[String], directory_url: &str, cert: &[u8]) -> Result<(), Self::EC> {
+        self.inner.store_cert(domains, directory_url, cert).await.map_err(box_err)
     }
 }
 
@@ -55,26 +40,11 @@ where
     <T as AccountCache>::EA: 'static,
 {
     type EA = Box<dyn Debug>;
-    async fn load_account(
-        &self,
-        contact: &[String],
-        directory_url: &str,
-    ) -> Result<Option<Vec<u8>>, Self::EA> {
-        self.inner
-            .load_account(contact, directory_url)
-            .await
-            .map_err(box_err)
+    async fn load_account(&self, contact: &[String], directory_url: &str) -> Result<Option<Vec<u8>>, Self::EA> {
+        self.inner.load_account(contact, directory_url).await.map_err(box_err)
     }
 
-    async fn store_account(
-        &self,
-        contact: &[String],
-        directory_url: &str,
-        account: &[u8],
-    ) -> Result<(), Self::EA> {
-        self.inner
-            .store_account(contact, directory_url, account)
-            .await
-            .map_err(box_err)
+    async fn store_account(&self, contact: &[String], directory_url: &str, account: &[u8]) -> Result<(), Self::EA> {
+        self.inner.store_account(contact, directory_url, account).await.map_err(box_err)
     }
 }

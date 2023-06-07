@@ -34,9 +34,7 @@ async fn main() {
     simple_logger::init_with_level(log::Level::Info).unwrap();
     let args = Args::parse();
 
-    let tcp_listener = tokio::net::TcpListener::bind((Ipv6Addr::UNSPECIFIED, args.port))
-        .await
-        .unwrap();
+    let tcp_listener = tokio::net::TcpListener::bind((Ipv6Addr::UNSPECIFIED, args.port)).await.unwrap();
     let tcp_incoming = TcpListenerStream::new(tcp_listener);
 
     let tls_incoming = AcmeConfig::new(args.domains)

@@ -63,9 +63,7 @@ async fn main() {
 }
 
 async fn serve(acceptor: AcmeAcceptor, rustls_config: Arc<ServerConfig>, port: u16) {
-    let listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, port))
-        .await
-        .unwrap();
+    let listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, port)).await.unwrap();
 
     while let Some(tcp) = listener.incoming().next().await {
         let rustls_config = rustls_config.clone();

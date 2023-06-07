@@ -62,9 +62,7 @@ async fn main() {
 }
 
 async fn serve(acceptor: AcmeAcceptor, rustls_config: Arc<ServerConfig>, port: u16) {
-    let listener = tokio::net::TcpListener::bind((Ipv6Addr::UNSPECIFIED, port))
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind((Ipv6Addr::UNSPECIFIED, port)).await.unwrap();
     loop {
         let tcp = listener.accept().await.unwrap().0.compat();
         let rustls_config = rustls_config.clone();
@@ -74,11 +72,7 @@ async fn serve(acceptor: AcmeAcceptor, rustls_config: Arc<ServerConfig>, port: u
             match accept_future.await.unwrap() {
                 None => log::info!("received TLS-ALPN-01 validation request"),
                 Some(start_handshake) => {
-                    let mut tls = start_handshake
-                        .into_stream(rustls_config)
-                        .await
-                        .unwrap()
-                        .compat();
+                    let mut tls = start_handshake.into_stream(rustls_config).await.unwrap().compat();
                     tls.write_all(HELLO).await.unwrap();
                     tls.shutdown().await.unwrap();
                 }
