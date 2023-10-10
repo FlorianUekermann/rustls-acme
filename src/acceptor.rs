@@ -1,5 +1,6 @@
 use crate::acme::ACME_TLS_ALPN_NAME;
 use crate::ResolvesServerCertAcme;
+use core::fmt;
 use futures::prelude::*;
 use futures_rustls::{Accept, LazyConfigAcceptor, StartHandshake};
 use rustls::server::Acceptor;
@@ -25,6 +26,12 @@ impl AcmeAcceptor {
     }
     pub fn accept<IO: AsyncRead + AsyncWrite + Unpin>(&self, io: IO) -> AcmeAccept<IO> {
         AcmeAccept::new(io, self.config.clone())
+    }
+}
+
+impl fmt::Debug for AcmeAcceptor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AcmeAcceptor").finish_non_exhaustive()
     }
 }
 

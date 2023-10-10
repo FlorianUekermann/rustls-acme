@@ -2,6 +2,7 @@ use crate::acme::{LETS_ENCRYPT_PRODUCTION_DIRECTORY, LETS_ENCRYPT_STAGING_DIRECT
 use crate::caches::{BoxedErrCache, CompositeCache, NoCache};
 use crate::{AccountCache, Cache, CertCache};
 use crate::{AcmeState, Incoming};
+use core::fmt;
 use futures::{AsyncRead, AsyncWrite, Stream};
 use rustls::{ClientConfig, RootCertStore};
 use std::convert::Infallible;
@@ -166,5 +167,15 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
         EA,
     > {
         self.state().tokio_incoming(tcp_incoming, alpn_protocols)
+    }
+}
+
+impl<EC: 'static + Debug, EA: 'static + Debug> fmt::Debug for AcmeConfig<EC, EA> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AcmeConfig")
+            .field("directory", &self.directory_url)
+            .field("domains", &self.domains)
+            .field("contact", &self.contact)
+            .finish_non_exhaustive()
     }
 }

@@ -3,6 +3,7 @@ use crate::acme::{Account, AcmeError, Auth, AuthStatus, Directory, Identifier, O
 use crate::{AcmeConfig, Incoming, ResolvesServerCertAcme};
 use async_io::Timer;
 use chrono::{DateTime, TimeZone, Utc};
+use core::fmt;
 use futures::future::try_join_all;
 use futures::prelude::*;
 use futures::ready;
@@ -31,6 +32,12 @@ pub struct AcmeState<EC: Debug = Infallible, EA: Debug = EC> {
     order: Option<Pin<Box<dyn Future<Output = Result<Vec<u8>, OrderError>> + Send>>>,
     backoff_cnt: usize,
     wait: Option<Timer>,
+}
+
+impl<EC: 'static + Debug, EA: 'static + Debug> fmt::Debug for AcmeState<EC, EA> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AcmeState").field("config", &self.config).finish_non_exhaustive()
+    }
 }
 
 pub type Event<EC, EA> = Result<EventOk, EventError<EC, EA>>;

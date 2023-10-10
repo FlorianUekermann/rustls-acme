@@ -1,5 +1,6 @@
 use crate::acceptor::{AcmeAccept, AcmeAcceptor};
 use crate::AcmeState;
+use core::fmt;
 use futures::stream::{FusedStream, FuturesUnordered};
 use futures::{AsyncRead, AsyncWrite, Stream};
 use futures_rustls::server::TlsStream;
@@ -23,6 +24,19 @@ pub struct Incoming<
     tcp_incoming: Option<ITCP>,
     acme_accepting: FuturesUnordered<AcmeAccept<TCP>>,
     tls_accepting: FuturesUnordered<Accept<TCP>>,
+}
+
+impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin, EC: Debug + 'static, EA: Debug + 'static> fmt::Debug
+    for Incoming<TCP, ETCP, ITCP, EC, EA>
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Incoming")
+            .field("state", &self.state)
+            .field("acceptor", &self.acceptor)
+            .field("in_progress", &(self.acme_accepting.len() + self.tls_accepting.len()))
+            .field("terminated", &self.is_terminated())
+            .finish_non_exhaustive()
+    }
 }
 
 impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin, EC: Debug + 'static, EA: Debug + 'static> Unpin
