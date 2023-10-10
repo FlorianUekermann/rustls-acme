@@ -3,7 +3,8 @@ use std::sync::Arc;
 use crate::https_helper::{https, HttpsRequestError};
 use crate::jose::{key_authorization_sha256, sign, JoseError};
 use base64::URL_SAFE_NO_PAD;
-use http_types::{Method, Response};
+use http::header::ToStrError;
+use http::{Method, Response};
 use rcgen::{Certificate, CustomExtension, RcgenError, PKCS_ECDSA_P256_SHA256};
 use ring::error::{KeyRejected, Unspecified};
 use ring::rand::SystemRandom;
@@ -59,7 +60,7 @@ impl Account {
         })
         .to_string();
         let body = sign(&key_pair, None, directory.nonce(client_config).await?, &directory.new_account, &payload)?;
-        let response = https(client_config, &directory.new_account, Method::Post, Some(body)).await?;
+        let response = https(client_config, &directory.new_account, Method::POST, Some(body)).await?;
         let kid = get_header(&response, "Location")?;
         Ok(Account { key_pair, kid, directory })
     }
@@ -71,9 +72,9 @@ impl Account {
             url.as_ref(),
             payload,
         )?;
-        let mut response = https(client_config, url.as_ref(), Method::Post, Some(body)).await?;
+        let response = https(client_config, url.as_ref(), Method::POST, Some(body)).await?;
         let location = get_header(&response, "Location").ok();
-        let body = response.body_string().await?;
+        let body = response.into_body();
         log::debug!("response: {:?}", body);
         Ok((location, body))
     }
@@ -133,11 +134,11 @@ pub struct Directory {
 
 impl Directory {
     pub async fn discover(client_config: &Arc<ClientConfig>, url: impl AsRef<str>) -> Result<Self, AcmeError> {
-        let body = https(client_config, url, Method::Get, None).await?.body_bytes().await?;
-        Ok(serde_json::from_slice(&body)?)
+        let body = https(client_config, url, Method::GET, None).await?.into_body();
+        Ok(serde_json::from_str(&body)?)
     }
     pub async fn nonce(&self, client_config: &Arc<ClientConfig>) -> Result<String, AcmeError> {
-        let response = &https(client_config, &self.new_nonce.as_str(), Method::Head, None).await?;
+        let response = &https(client_config, &self.new_nonce.as_str(), Method::HEAD, None).await?;
         get_header(response, "replay-nonce")
     }
 }
@@ -226,6 +227,8 @@ pub enum AcmeError {
     Json(#[from] serde_json::Error),
     #[error("http request error: {0}")]
     HttpRequest(#[from] HttpsRequestError),
+    #[error("non-string http response header: {0}")]
+    HttpResponseNonStringHeader(#[from] ToStrError),
     #[error("invalid key pair: {0}")]
     KeyRejected(#[from] KeyRejected),
     #[error("crypto error: {0}")]
@@ -236,15 +239,15 @@ pub enum AcmeError {
     NoTlsAlpn01Challenge,
 }
 
-impl From<http_types::Error> for AcmeError {
-    fn from(e: http_types::Error) -> Self {
+impl From<http::Error> for AcmeError {
+    fn from(e: http::Error) -> Self {
         Self::HttpRequest(HttpsRequestError::from(e))
     }
 }
 
-fn get_header(response: &Response, header: &'static str) -> Result<String, AcmeError> {
-    match response.header(header) {
+fn get_header(response: &Response<String>, header: &'static str) -> Result<String, AcmeError> {
+    match response.headers().get_all(header).iter().last() {
         None => Err(AcmeError::MissingHeader(header)),
-        Some(values) => Ok(values.last().to_string()),
+        Some(value) => Ok(value.to_str()?.to_string()),
     }
 }
