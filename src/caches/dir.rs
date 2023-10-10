@@ -1,5 +1,6 @@
 use crate::{AccountCache, CertCache};
 use async_trait::async_trait;
+use blocking::unblock;
 use ring::digest::{Context, SHA256};
 use std::io::ErrorKind;
 use std::path::Path;
@@ -14,7 +15,7 @@ impl<P: AsRef<Path> + Send + Sync> DirCache<P> {
     }
     async fn read_if_exist(&self, file: impl AsRef<Path>) -> Result<Option<Vec<u8>>, std::io::Error> {
         let path = self.inner.as_ref().join(file);
-        match smol::fs::read(path).await {
+        match unblock(move || std::fs::read(&path)).await {
             Ok(content) => Ok(Some(content)),
             Err(err) => match err.kind() {
                 ErrorKind::NotFound => Ok(None),
@@ -23,9 +24,11 @@ impl<P: AsRef<Path> + Send + Sync> DirCache<P> {
         }
     }
     async fn write(&self, file: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> Result<(), std::io::Error> {
-        smol::fs::create_dir_all(&self.inner).await?;
+        let path = self.inner.as_ref().to_owned();
+        unblock(move || std::fs::create_dir_all(&path)).await?;
         let path = self.inner.as_ref().join(file);
-        Ok(smol::fs::write(path, contents).await?)
+        let contents = contents.as_ref().to_owned();
+        unblock(move || std::fs::write(path, contents)).await
     }
     fn cached_account_file_name(contact: &[String], directory_url: impl AsRef<str>) -> String {
         let mut ctx = Context::new(&SHA256);
