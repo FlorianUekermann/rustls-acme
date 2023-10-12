@@ -1,6 +1,6 @@
 use crate::acceptor::AcmeAcceptor;
 use crate::acme::{Account, AcmeError, Auth, AuthStatus, Directory, Identifier, Order, OrderStatus};
-use crate::{AcmeConfig, Incoming, ResolvesServerCertAcme};
+use crate::{AcmeConfig, Incoming, ResolvesServerCertAcme, StreamlinedResolver};
 use async_io::Timer;
 use chrono::{DateTime, TimeZone, Utc};
 use core::fmt;
@@ -19,13 +19,13 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use thiserror::Error;
+use x509_parser::certificate::Validity;
 use x509_parser::parse_x509_certificate;
 
 pub struct AcmeState<EC: Debug = Infallible, EA: Debug = EC> {
     config: Arc<AcmeConfig<EC, EA>>,
     resolver: Arc<ResolvesServerCertAcme>,
     account_key: Option<Vec<u8>>,
-
     early_action: Option<Pin<Box<dyn Future<Output = Event<EC, EA>> + Send>>>,
     load_cert: Option<Pin<Box<dyn Future<Output = Result<Option<Vec<u8>>, EC>> + Send>>>,
     load_account: Option<Pin<Box<dyn Future<Output = Result<Option<Vec<u8>>, EA>> + Send>>>,
@@ -82,6 +82,8 @@ pub enum OrderError {
     TooManyAttemptsAuth(String),
     #[error("order status stayed on processing too long")]
     ProcessingTimeout(Order),
+    #[error("certificate parsing error: {0}")]
+    CertParse(#[from] CertParseError),
 }
 
 #[derive(Error, Debug)]
@@ -94,6 +96,10 @@ pub enum CertParseError {
     TooFewPem(usize),
     #[error("unsupported private key type")]
     InvalidPrivateKey,
+    #[error("certificate has no associated dns entries")]
+    NoDns,
+    #[error("certificate does not match expected domains")]
+    InvalidDns,
 }
 
 impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
@@ -159,18 +165,10 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         if pems.len() < 2 {
             return Err(CertParseError::TooFewPem(pems.len()));
         }
-        let pk = match any_ecdsa_type(&PrivateKey(pems.remove(0).contents)) {
-            Ok(pk) => pk,
-            Err(_) => return Err(CertParseError::InvalidPrivateKey),
-        };
+        let pk = any_ecdsa_type(&PrivateKey(pems.remove(0).contents)).map_err(|_| CertParseError::InvalidPrivateKey)?;
         let cert_chain: Vec<RustlsCertificate> = pems.into_iter().map(|p| RustlsCertificate(p.contents)).collect();
-        let validity = match parse_x509_certificate(cert_chain[0].0.as_slice()) {
-            Ok((_, cert)) => {
-                let validity = cert.validity();
-                [validity.not_before, validity.not_after].map(|t| Utc.timestamp_opt(t.timestamp(), 0).earliest().unwrap())
-            }
-            Err(err) => return Err(CertParseError::X509(err)),
-        };
+        let Validity { not_before, not_after } = parse_x509_certificate(&cert_chain[0].0).map_err(CertParseError::X509)?.1.validity;
+        let validity = [not_before, not_after].map(|t| Utc.timestamp_opt(t.timestamp(), 0).earliest().unwrap());
         let cert = CertifiedKey::new(cert_chain, pk);
         Ok((cert, validity))
     }
@@ -236,7 +234,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                 OrderStatus::Ready => {
                     log::info!("sending csr");
                     let csr = cert.serialize_request_der()?;
-                    order = account.finalize(&config.client_config, order.finalize, csr).await?
+                    order = account.finalize(&config.client_config, order.finalize, &csr).await?
                 }
                 OrderStatus::Valid { certificate } => {
                     log::info!("download certificate");

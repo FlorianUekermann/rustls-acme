@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use crate::https_helper::{https, HttpsRequestError};
@@ -78,8 +80,12 @@ impl Account {
         log::debug!("response: {:?}", body);
         Ok((location, body))
     }
-    pub async fn new_order(&self, client_config: &Arc<ClientConfig>, domains: Vec<String>) -> Result<(String, Order), AcmeError> {
-        let domains: Vec<Identifier> = domains.into_iter().map(|d| Identifier::Dns(d)).collect();
+    pub async fn new_order<'d, D: Into<SerIdentifier<'d>>>(
+        &self,
+        client_config: &Arc<ClientConfig>,
+        domains: impl IntoIterator<Item = D>,
+    ) -> Result<(String, Order), AcmeError> {
+        let domains: Vec<SerIdentifier<'d>> = domains.into_iter().map(Into::into).collect();
         let payload = format!("{{\"identifiers\":{}}}", serde_json::to_string(&domains)?);
         let response = self.request(client_config, &self.directory.new_order, &payload).await?;
         let url = response.0.ok_or(AcmeError::MissingHeader("Location"))?;
@@ -87,33 +93,32 @@ impl Account {
         Ok((url, order))
     }
     pub async fn auth(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>) -> Result<Auth, AcmeError> {
-        let payload = "".to_string();
-        let response = self.request(client_config, url, &payload).await?;
+        let response = self.request(client_config, url, "").await?;
         Ok(serde_json::from_str(&response.1)?)
     }
     pub async fn challenge(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>) -> Result<(), AcmeError> {
-        self.request(client_config, &url, "{}").await?;
+        self.request(client_config, url, "{}").await?;
         Ok(())
     }
     pub async fn order(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>) -> Result<Order, AcmeError> {
-        let response = self.request(client_config, &url, "").await?;
+        let response = self.request(client_config, url, "").await?;
         Ok(serde_json::from_str(&response.1)?)
     }
-    pub async fn finalize(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>, csr: Vec<u8>) -> Result<Order, AcmeError> {
+    pub async fn finalize(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>, csr: impl AsRef<[u8]>) -> Result<Order, AcmeError> {
         let payload = format!("{{\"csr\":\"{}\"}}", base64::encode_config(csr, URL_SAFE_NO_PAD));
-        let response = self.request(client_config, &url, &payload).await?;
+        let response = self.request(client_config, url, &payload).await?;
         Ok(serde_json::from_str(&response.1)?)
     }
     pub async fn certificate(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>) -> Result<String, AcmeError> {
-        Ok(self.request(client_config, &url, "").await?.1)
+        Ok(self.request(client_config, url, "").await?.1)
     }
-    pub fn tls_alpn_01<'a>(&self, challenges: &'a Vec<Challenge>, domain: String) -> Result<(&'a Challenge, CertifiedKey), AcmeError> {
+    pub fn tls_alpn_01<'a>(&self, challenges: &'a Vec<Challenge>, domain: impl Into<String>) -> Result<(&'a Challenge, CertifiedKey), AcmeError> {
         let challenge = challenges.iter().filter(|c| c.typ == ChallengeType::TlsAlpn01).next();
         let challenge = match challenge {
             Some(challenge) => challenge,
             None => return Err(AcmeError::NoTlsAlpn01Challenge),
         };
-        let mut params = rcgen::CertificateParams::new(vec![domain]);
+        let mut params = rcgen::CertificateParams::new(vec![domain.into()]);
         let key_auth = key_authorization_sha256(&self.key_pair, &*challenge.token)?;
         params.alg = &PKCS_ECDSA_P256_SHA256;
         params.custom_extensions = vec![CustomExtension::new_acme_identifier(key_auth.as_ref())];
@@ -159,6 +164,7 @@ pub struct Order {
     #[serde(flatten)]
     pub status: OrderStatus,
     pub authorizations: Vec<String>,
+    pub identifiers: Vec<Identifier>,
     pub finalize: String,
     pub error: Option<Problem>,
 }
@@ -196,6 +202,50 @@ pub enum AuthStatus {
 #[serde(tag = "type", content = "value", rename_all = "camelCase")]
 pub enum Identifier {
     Dns(String),
+}
+
+impl Deref for Identifier {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        let Self::Dns(str) = self;
+        str
+    }
+}
+
+impl AsRef<str> for Identifier {
+    fn as_ref(&self) -> &str {
+        self.deref()
+    }
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", content = "value", rename_all = "camelCase")]
+pub enum SerIdentifier<'a> {
+    Dns(Cow<'a, str>),
+}
+
+impl<'a> From<&'a str> for SerIdentifier<'a> {
+    fn from(value: &'a str) -> Self {
+        Self::Dns(Cow::Borrowed(value))
+    }
+}
+
+impl<'a> From<&'a Identifier> for SerIdentifier<'a> {
+    fn from(value: &'a Identifier) -> Self {
+        Self::Dns(Cow::Borrowed(&value))
+    }
+}
+
+impl<'a> From<&'a String> for SerIdentifier<'a> {
+    fn from(value: &'a String) -> Self {
+        Self::Dns(Cow::Borrowed(&value))
+    }
+}
+impl<'a> From<String> for SerIdentifier<'a> {
+    fn from(value: String) -> Self {
+        Self::Dns(Cow::Owned(value))
+    }
 }
 
 #[derive(Debug, Deserialize)]
