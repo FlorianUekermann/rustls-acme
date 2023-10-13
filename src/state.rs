@@ -1,6 +1,6 @@
 use crate::acceptor::AcmeAcceptor;
 use crate::acme::{Account, AcmeError, Auth, AuthStatus, Directory, Identifier, Order, OrderStatus};
-use crate::{AcmeConfig, Incoming, ResolvesServerCertAcme, StreamlinedResolver};
+use crate::{AcmeConfig, Incoming, ResolvesServerCertAcme};
 use async_io::Timer;
 use chrono::{DateTime, TimeZone, Utc};
 use core::fmt;
@@ -82,6 +82,14 @@ pub enum OrderError {
     TooManyAttemptsAuth(String),
     #[error("order status stayed on processing too long")]
     ProcessingTimeout(Order),
+    #[error("certificate parsing error: {0}")]
+    CertParse(#[from] CertParseError),
+}
+
+#[derive(Error, Debug)]
+pub enum ResolverError<EC> {
+    #[error("cache error: {0}")]
+    Cache(EC),
     #[error("certificate parsing error: {0}")]
     CertParse(#[from] CertParseError),
 }

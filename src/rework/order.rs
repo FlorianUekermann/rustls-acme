@@ -1,7 +1,8 @@
-use crate::acme::{Account, AcmeError, Order, OrderStatus, SerIdentifier};
+use crate::acme::{Account, AcmeError, Order, OrderStatus};
 use crate::rework::auth::authorize_all;
-use crate::{CertificateHandle, OrderError};
+use crate::{CertificateHandle, CertificateInfo, OrderError};
 use async_io::Timer;
+
 use rcgen::{Certificate, CertificateParams, DistinguishedName, PKCS_ECDSA_P256_SHA256};
 use rustls::ClientConfig;
 use std::sync::Arc;
@@ -44,7 +45,7 @@ impl<'a> OrderProcess<'a> {
         Ok(self)
     }
 
-    async fn authorize(mut self) -> Result<OrderProcess<'a>, OrderError> {
+    async fn authorize(self) -> Result<OrderProcess<'a>, OrderError> {
         authorize_all(&self.client_config, &self.handle, &self.account, self.order.identifiers.iter()).await?;
         log::info!("completed all authorizations");
         Ok(self.update().await?)
@@ -70,7 +71,7 @@ impl<'a> OrderProcess<'a> {
         Ok(self)
     }
 
-    async fn to_certificate(&self, certificate: &str) -> Result<(), OrderError> {
+    async fn to_certificate(&self, certificate: &str) -> Result<CertificateInfo, OrderError> {
         log::info!("download certificate");
         let pem: String = [
             &self.cert.serialize_private_key_pem(),
@@ -78,12 +79,11 @@ impl<'a> OrderProcess<'a> {
             &self.account.certificate(&self.client_config, certificate).await?,
         ]
         .concat();
-        self.handle.use_pem(pem, true)?;
-        return Ok(());
+        return Ok(self.handle.use_pem(pem, true)?);
     }
 }
 
-pub async fn order(account: &Account, client_config: &Arc<ClientConfig>, handle: &CertificateHandle) -> Result<(), OrderError> {
+pub async fn order(account: &Account, client_config: &Arc<ClientConfig>, handle: &CertificateHandle) -> Result<CertificateInfo, OrderError> {
     let mut this = OrderProcess::new(account, client_config, handle).await?;
     loop {
         match this.order.status {

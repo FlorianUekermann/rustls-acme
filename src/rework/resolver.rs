@@ -1,6 +1,6 @@
 use crate::acme::{Account, ACME_TLS_ALPN_NAME};
 use crate::rework::certificate::CertificateHandle;
-use crate::{AcmeAcceptor, CertParseError, CertificateShouldUpdate, OrderError};
+use crate::{AcmeAcceptor, CertParseError, CertificateShouldUpdate, MultiCertCache, OrderError, ResolverError};
 use async_io::Timer;
 use async_notify::Notify;
 use bytes::Bytes;
@@ -12,24 +12,26 @@ use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::CertifiedKey;
 use rustls::ClientConfig;
 use std::borrow::Borrow;
-use std::collections::HashSet;
-use std::fmt::Debug;
+
+use log::error;
 use std::future::Future;
 use std::pin::{pin, Pin};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use stream_throttle::{ThrottlePool, ThrottleRate};
+use vec_collections::{AbstractVecSet, VecSet2};
 
 #[derive(Default)]
 pub struct InnerResolver {
     map: MultiKeyMap<String, Arc<CertificateHandle>>,
-    keys: HashSet<String>,
+    keys: VecSet2<String>,
 }
 
-pub struct StreamlinedResolver {
+pub struct StreamlinedResolver<C> {
     inner: Mutex<InnerResolver>,
     notifier: Arc<Notify>,
     updater_handles: Arc<()>,
+    cache: C,
 }
 
 #[pin_project]
@@ -41,7 +43,7 @@ pub struct Updater<F> {
 
 impl<F: Future> Future for Updater<F> {
     type Output = F::Output;
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.project().future.poll(cx)
     }
 }
@@ -55,21 +57,33 @@ impl Drop for Handle {
     }
 }
 
-impl StreamlinedResolver {
-    pub fn new_with_updater(
+impl<C> StreamlinedResolver<C> {
+    pub async fn new_with_updater(
         account: impl Borrow<Account>,
         client_config: impl Borrow<Arc<ClientConfig>>,
-    ) -> (Arc<StreamlinedResolver>, Updater<impl Future + Sized>) {
+        cache: C,
+    ) -> Result<(Arc<Self>, Updater<impl Future + Sized>), ResolverError<C::EC>>
+    where
+        C: MultiCertCache,
+    {
+        let certs = cache.load_all_certs().await.map_err(ResolverError::Cache)?;
         let this = Arc::new(Self {
             inner: Mutex::new(Default::default()),
             notifier: Arc::new(Default::default()),
             updater_handles: Arc::new(()),
+            cache,
         });
+        for cert in certs {
+            this.create_pem_handle(cert.pem, cert.automatic)?;
+        }
         let updater = this.clone().updater(account, client_config);
-        (this, updater)
+        Ok((this, updater))
     }
 
-    pub(crate) fn updater(self: Arc<Self>, account: impl Borrow<Account>, client_config: impl Borrow<Arc<ClientConfig>>) -> Updater<impl Future> {
+    pub(crate) fn updater(self: Arc<Self>, account: impl Borrow<Account>, client_config: impl Borrow<Arc<ClientConfig>>) -> Updater<impl Future>
+    where
+        C: MultiCertCache,
+    {
         debug_assert_eq!(
             Arc::strong_count(&self.updater_handles),
             1,
@@ -111,8 +125,24 @@ impl StreamlinedResolver {
     ) -> Result<Arc<CertificateHandle>, CertParseError> {
         self.create_handle(CertificateHandle::from_domains(domains, automatic))
     }
+    pub async fn get_or_create_domain_handle<S: Into<String>>(
+        &self,
+        domains: impl Borrow<[String]> + IntoIterator<Item = S>,
+        automatic: bool,
+    ) -> Result<Arc<CertificateHandle>, ResolverError<C::EC>>
+    where
+        C: MultiCertCache,
+    {
+        Ok(
+            if let Some(existing) = self.cache.load_cert(domains.borrow()).await.map_err(ResolverError::Cache)? {
+                self.create_pem_handle(existing.pem, existing.automatic)?
+            } else {
+                self.create_handle(CertificateHandle::from_domains(domains, automatic))?
+            },
+        )
+    }
 
-    pub fn create_pem_handle<S: Into<String>>(&self, pem: impl Into<Bytes>, automatic: bool) -> Result<Arc<CertificateHandle>, CertParseError> {
+    pub fn create_pem_handle(&self, pem: impl Into<Bytes>, automatic: bool) -> Result<Arc<CertificateHandle>, CertParseError> {
         self.create_handle(CertificateHandle::from_pem(pem, automatic)?)
     }
     fn create_handle(&self, handle: CertificateHandle) -> Result<Arc<CertificateHandle>, CertParseError> {
@@ -120,7 +150,7 @@ impl StreamlinedResolver {
         {
             let domains = handle.domains();
             let mut lock = self.inner.lock().unwrap();
-            if !lock.keys.is_disjoint(&domains) {
+            if !lock.keys.is_disjoint(domains) {
                 return Err(CertParseError::InvalidDns);
             }
             lock.keys.extend(domains.iter().cloned());
@@ -139,24 +169,35 @@ impl StreamlinedResolver {
         account: &Account,
         client_config: &Arc<ClientConfig>,
         limit: Option<&ThrottlePool>,
-    ) -> Result<Option<DateTime<Utc>>, OrderError> {
+    ) -> Result<Option<DateTime<Utc>>, OrderError>
+    where
+        C: MultiCertCache,
+    {
         let mut renew_time: Option<DateTime<Utc>> = None;
         for handle in self.get_all_handles() {
-            match handle.get_should_update() {
+            let date = match handle.get_should_update() {
                 CertificateShouldUpdate::Renew => {
                     if let Some(limit) = limit {
                         limit.queue().await
                     }
-                    handle.order(account, client_config).await?
+                    let info = handle.order(account, client_config).await?;
+                    if let Err(err) = self.cache.store_cert(&info).await {
+                        error!("Unable to store generated certificate in cache: {:?}", err);
+                    }
+                    info.validity[1]
                 }
-                CertificateShouldUpdate::RenewLater(date) => renew_time = Some(renew_time.take().map_or_else(|| date, |other| other.min(date))),
-                _ => {}
-            }
+                CertificateShouldUpdate::RenewLater(date) => date,
+                _ => continue,
+            };
+            renew_time = Some(renew_time.take().map_or_else(|| date, |other| other.min(date)));
         }
         Ok(renew_time)
     }
 
-    pub fn acceptor(self: &Arc<Self>) -> AcmeAcceptor {
+    pub fn acceptor(self: &Arc<Self>) -> AcmeAcceptor
+    where
+        C: Send + Sync + 'static,
+    {
         AcmeAcceptor::new(self.clone())
     }
 
@@ -166,7 +207,7 @@ impl StreamlinedResolver {
     }
 }
 
-impl ResolvesServerCert for StreamlinedResolver {
+impl<C: Send + Sync> ResolvesServerCert for StreamlinedResolver<C> {
     fn resolve(&self, client_hello: ClientHello) -> Option<Arc<CertifiedKey>> {
         let domain = client_hello.server_name().map(|it| {
             log::warn!("client did not supply SNI");
@@ -179,7 +220,7 @@ impl ResolvesServerCert for StreamlinedResolver {
         if client_hello.alpn().into_iter().flatten().eq([ACME_TLS_ALPN_NAME]) {
             inner.get_challenge_certificate(domain)
         } else {
-            inner.get_final_certificate()
+            inner.get_certificate()
         }
     }
 }

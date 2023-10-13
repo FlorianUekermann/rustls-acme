@@ -5,35 +5,54 @@ use bytes::Bytes;
 use chrono::{DateTime, TimeZone, Utc};
 use rustls::sign::{any_ecdsa_type, CertifiedKey};
 use rustls::{Certificate, ClientConfig, PrivateKey};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use vec_collections::VecSet2;
 use x509_parser::certificate::Validity;
 use x509_parser::extensions::GeneralName;
 use x509_parser::parse_x509_certificate;
 
+#[derive(Clone)]
 pub struct FinalCertificate {
     validity: [DateTime<Utc>; 2],
     pem: Bytes,
     certificate: Arc<CertifiedKey>,
 }
 
-pub struct InnerCertificateHandle {
+#[derive(Clone)]
+pub struct CertificateInfo {
+    pub automatic: bool,
+    pub domains: VecSet2<String>,
+    pub validity: [DateTime<Utc>; 2],
+    pub pem: Bytes,
+}
+
+struct InnerCertificateHandle {
     automatic: bool,
-    domains: Arc<HashSet<String>>,
     auth_keys: HashMap<String, Arc<CertifiedKey>>,
     certificate: Option<FinalCertificate>,
 }
 
-impl InnerCertificateHandle {
-    fn from_domains<S: Into<String>>(domains: impl IntoIterator<Item = S>, automatic: bool) -> Self {
+impl InnerCertificateHandle {}
+
+pub struct CertificateHandle {
+    inner: Mutex<InnerCertificateHandle>,
+    domains: VecSet2<String>,
+}
+
+impl CertificateHandle {
+    pub fn from_domains<S: Into<String>>(domains: impl IntoIterator<Item = S>, automatic: bool) -> Self {
         Self {
-            automatic,
-            domains: Arc::new(domains.into_iter().map(Into::into).collect()),
-            auth_keys: Default::default(),
-            certificate: None,
+            inner: Mutex::new(InnerCertificateHandle {
+                automatic,
+                auth_keys: Default::default(),
+                certificate: None,
+            }),
+            domains: domains.into_iter().map(Into::into).collect(),
         }
     }
-    fn from_pem(pem: impl Into<Bytes>, automatic: bool) -> Result<Self, CertParseError> {
+
+    pub fn from_pem(pem: impl Into<Bytes>, automatic: bool) -> Result<Self, CertParseError> {
         let pem = pem.into();
         let mut pems = pem::parse_many(&pem)?;
         if pems.len() < 2 {
@@ -44,7 +63,7 @@ impl InnerCertificateHandle {
         let (_, x509) = parse_x509_certificate(&cert_chain.first().unwrap().0).map_err(CertParseError::X509)?;
         let Validity { not_before, not_after } = x509.validity();
         let validity = [not_before, not_after].map(|t| Utc.timestamp_opt(t.timestamp(), 0).earliest().unwrap());
-        let domains: HashSet<_> = x509
+        let domains: VecSet2<_> = x509
             .subject_alternative_name()
             .ok()
             .flatten()
@@ -64,59 +83,68 @@ impl InnerCertificateHandle {
         if domains.is_empty() {
             return Err(CertParseError::NoDns);
         }
-        Ok(Self {
+        let inner = InnerCertificateHandle {
             automatic,
-            domains: Arc::new(domains),
             auth_keys: Default::default(),
             certificate: Some(FinalCertificate { validity, certificate, pem }),
+        };
+        Ok(Self {
+            inner: Mutex::new(inner),
+            domains,
         })
     }
-}
 
-pub struct CertificateHandle(Mutex<InnerCertificateHandle>);
-
-impl CertificateHandle {
-    pub fn from_domains<S: Into<String>>(domains: impl IntoIterator<Item = S>, automatic: bool) -> Self {
-        Self(Mutex::new(InnerCertificateHandle::from_domains(domains, automatic)))
-    }
-    pub fn from_pem(pem: impl Into<Bytes>, automatic: bool) -> Result<Self, CertParseError> {
-        Ok(Self(Mutex::new(InnerCertificateHandle::from_pem(pem, automatic)?)))
+    pub fn use_pem(&self, pem: impl Into<Bytes>, automatic: bool) -> Result<CertificateInfo, CertParseError> {
+        let new = Self::from_pem(pem, automatic)?;
+        let info = new.get_info().unwrap();
+        self.replace(new)?;
+        Ok(info)
     }
 
-    pub fn use_pem(&self, pem: impl Into<Bytes>, automatic: bool) -> Result<(), CertParseError> {
-        let inner = InnerCertificateHandle::from_pem(pem, automatic)?;
-        if self.domains() != inner.domains {
+    pub fn domains(&self) -> &VecSet2<String> {
+        &self.domains
+    }
+    pub fn get_certificate(&self) -> Option<Arc<CertifiedKey>> {
+        Some(self.inner.lock().unwrap().certificate.as_ref()?.certificate.clone())
+    }
+    pub fn get_challenge_certificate(&self, domain: &str) -> Option<Arc<CertifiedKey>> {
+        self.inner.lock().unwrap().auth_keys.get(domain).cloned()
+    }
+
+    pub fn replace(&self, other: Self) -> Result<(), CertParseError> {
+        if self.domains != other.domains {
             return Err(CertParseError::InvalidDns);
         }
-        *self.0.lock().unwrap() = inner;
+        *self.inner.lock().unwrap() = other.inner.into_inner().unwrap();
         Ok(())
     }
 
-    pub fn domains(&self) -> Arc<HashSet<String>> {
-        self.0.lock().unwrap().domains.clone()
-    }
-    pub fn get_final_certificate(&self) -> Option<Arc<CertifiedKey>> {
-        Some(self.0.lock().unwrap().certificate.as_ref()?.certificate.clone())
-    }
-    pub fn get_challenge_certificate(&self, domain: &str) -> Option<Arc<CertifiedKey>> {
-        self.0.lock().unwrap().auth_keys.get(domain).cloned()
-    }
-
-    pub fn replace(&self, other: InnerCertificateHandle) {
-        let mut lock = self.0.lock().unwrap();
-        *lock = other;
-    }
-
     pub fn set_auth_key(&self, domain: impl Into<String>, key: Arc<CertifiedKey>) {
-        let mut lock = self.0.lock().unwrap();
+        let mut lock = self.inner.lock().unwrap();
         lock.auth_keys.insert(domain.into(), key);
     }
 
-    pub async fn order(&self, account: &Account, client_config: &Arc<ClientConfig>) -> Result<(), OrderError> {
+    pub async fn order(&self, account: &Account, client_config: &Arc<ClientConfig>) -> Result<CertificateInfo, OrderError> {
         order(account, client_config, self).await
     }
+
+    pub fn get_info(&self) -> Option<CertificateInfo> {
+        let lock = self.inner.lock().unwrap();
+        lock.certificate.as_ref().map(|cert| CertificateInfo {
+            automatic: lock.automatic,
+            domains: self.domains.clone(),
+            validity: cert.validity.clone(),
+            pem: cert.pem.clone(),
+        })
+    }
+
+    pub fn get_validity(&self) -> Option<[DateTime<Utc>; 2]> {
+        let lock = self.inner.lock().unwrap();
+        lock.certificate.as_ref().map(|it| it.validity.clone())
+    }
+
     pub fn get_should_update(&self) -> CertificateShouldUpdate {
-        let lock = self.0.lock().unwrap();
+        let lock = self.inner.lock().unwrap();
         if !lock.automatic {
             return CertificateShouldUpdate::Ignore;
         }
@@ -144,6 +172,14 @@ impl CertificateShouldUpdate {
         match self {
             Self::Ignore => None,
             other => Some(other),
+        }
+    }
+
+    pub fn into_datetime(self) -> Option<DateTime<Utc>> {
+        match self {
+            CertificateShouldUpdate::Renew => Some(Utc::now()),
+            CertificateShouldUpdate::RenewLater(later) => Some(later),
+            CertificateShouldUpdate::Ignore => None,
         }
     }
 }
