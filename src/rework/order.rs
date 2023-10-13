@@ -78,7 +78,7 @@ impl<'a> OrderProcess<'a> {
             &self.account.certificate(&self.client_config, certificate).await?,
         ]
         .concat();
-        self.handle.use_pem(pem.as_bytes(), true)?;
+        self.handle.use_pem(pem, true)?;
         return Ok(());
     }
 }

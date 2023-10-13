@@ -1,6 +1,7 @@
 use crate::acme::Account;
 use crate::rework::order::order;
 use crate::{CertParseError, OrderError};
+use bytes::Bytes;
 use chrono::{DateTime, TimeZone, Utc};
 use rustls::sign::{any_ecdsa_type, CertifiedKey};
 use rustls::{Certificate, ClientConfig, PrivateKey};
@@ -12,6 +13,7 @@ use x509_parser::parse_x509_certificate;
 
 pub struct FinalCertificate {
     validity: [DateTime<Utc>; 2],
+    pem: Bytes,
     certificate: Arc<CertifiedKey>,
 }
 
@@ -31,7 +33,8 @@ impl InnerCertificateHandle {
             certificate: None,
         }
     }
-    fn from_pem(pem: &[u8], automatic: bool) -> Result<Self, CertParseError> {
+    fn from_pem(pem: impl Into<Bytes>, automatic: bool) -> Result<Self, CertParseError> {
+        let pem = pem.into();
         let mut pems = pem::parse_many(&pem)?;
         if pems.len() < 2 {
             return Err(CertParseError::TooFewPem(pems.len()));
@@ -65,7 +68,7 @@ impl InnerCertificateHandle {
             automatic,
             domains: Arc::new(domains),
             auth_keys: Default::default(),
-            certificate: Some(FinalCertificate { validity, certificate }),
+            certificate: Some(FinalCertificate { validity, certificate, pem }),
         })
     }
 }
@@ -76,11 +79,11 @@ impl CertificateHandle {
     pub fn from_domains<S: Into<String>>(domains: impl IntoIterator<Item = S>, automatic: bool) -> Self {
         Self(Mutex::new(InnerCertificateHandle::from_domains(domains, automatic)))
     }
-    pub fn from_pem(pem: &[u8], automatic: bool) -> Result<Self, CertParseError> {
+    pub fn from_pem(pem: impl Into<Bytes>, automatic: bool) -> Result<Self, CertParseError> {
         Ok(Self(Mutex::new(InnerCertificateHandle::from_pem(pem, automatic)?)))
     }
 
-    pub fn use_pem(&self, pem: &[u8], automatic: bool) -> Result<(), CertParseError> {
+    pub fn use_pem(&self, pem: impl Into<Bytes>, automatic: bool) -> Result<(), CertParseError> {
         let inner = InnerCertificateHandle::from_pem(pem, automatic)?;
         if self.domains() != inner.domains {
             return Err(CertParseError::InvalidDns);

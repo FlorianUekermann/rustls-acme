@@ -1,5 +1,4 @@
 use crate::acme::ACME_TLS_ALPN_NAME;
-use crate::{ResolvesServerCertAcme, StreamlinedResolver};
 use core::fmt;
 use futures::prelude::*;
 use futures_rustls::{Accept, LazyConfigAcceptor, StartHandshake};
@@ -57,25 +56,18 @@ impl<IO: AsyncRead + AsyncWrite + Unpin> Future for AcmeAccept<IO> {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         loop {
             if let Some(validation_accept) = &mut self.validation_accept {
-                return match Pin::new(validation_accept).poll(cx) {
-                    Poll::Ready(Ok(_)) => Poll::Ready(Ok(None)),
-                    Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
-                    Poll::Pending => Poll::Pending,
-                };
+                return Pin::new(validation_accept).poll(cx).map_ok(|_| None);
             }
-
-            return match Pin::new(&mut self.acceptor).poll(cx) {
-                Poll::Ready(Ok(handshake)) => {
-                    let is_validation = handshake.client_hello().alpn().into_iter().flatten().eq([ACME_TLS_ALPN_NAME]);
-                    if is_validation {
-                        self.validation_accept = Some(handshake.into_stream(self.config.clone()));
-                        continue;
-                    }
-                    Poll::Ready(Ok(Some(handshake)))
-                }
-                Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
-                Poll::Pending => Poll::Pending,
+            let poll = Pin::new(&mut self.acceptor).poll(cx);
+            let Poll::Ready(Ok(handshake)) = poll else {
+                return poll.map_ok(|_| None);
             };
+            let is_validation = handshake.client_hello().alpn().into_iter().flatten().eq([ACME_TLS_ALPN_NAME]);
+            if is_validation {
+                self.validation_accept = Some(handshake.into_stream(self.config.clone()));
+            } else {
+                return Poll::Ready(Ok(Some(handshake)));
+            }
         }
     }
 }

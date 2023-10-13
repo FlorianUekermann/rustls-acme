@@ -1,8 +1,9 @@
 use crate::acme::{Account, ACME_TLS_ALPN_NAME};
 use crate::rework::certificate::CertificateHandle;
-use crate::{CertParseError, CertificateShouldUpdate, OrderError};
+use crate::{AcmeAcceptor, CertParseError, CertificateShouldUpdate, OrderError};
 use async_io::Timer;
 use async_notify::Notify;
+use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use futures::future::select;
 use multi_key_map::MultiKeyMap;
@@ -111,7 +112,7 @@ impl StreamlinedResolver {
         self.create_handle(CertificateHandle::from_domains(domains, automatic))
     }
 
-    pub fn create_pem_handle<S: Into<String>>(&self, pem: &[u8], automatic: bool) -> Result<Arc<CertificateHandle>, CertParseError> {
+    pub fn create_pem_handle<S: Into<String>>(&self, pem: impl Into<Bytes>, automatic: bool) -> Result<Arc<CertificateHandle>, CertParseError> {
         self.create_handle(CertificateHandle::from_pem(pem, automatic)?)
     }
     fn create_handle(&self, handle: CertificateHandle) -> Result<Arc<CertificateHandle>, CertParseError> {
@@ -153,6 +154,15 @@ impl StreamlinedResolver {
             }
         }
         Ok(renew_time)
+    }
+
+    pub fn acceptor(self: &Arc<Self>) -> AcmeAcceptor {
+        AcmeAcceptor::new(self.clone())
+    }
+
+    #[cfg(feature = "axum")]
+    pub fn axum_acceptor(&self, rustls_config: Arc<rustls::ServerConfig>) -> crate::axum::AxumAcceptor {
+        crate::axum::AxumAcceptor::new(self.acceptor(), rustls_config)
     }
 }
 

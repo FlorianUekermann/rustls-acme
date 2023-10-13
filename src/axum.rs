@@ -53,22 +53,20 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send + 'static, S: Send + 'static> Futu
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         loop {
             if let Some(tls_accept) = &mut self.tls_accept {
-                return match Pin::new(&mut *tls_accept).poll(cx) {
-                    Poll::Ready(Ok(tls)) => Poll::Ready(Ok((tls.compat(), self.service.take().unwrap()))),
-                    Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
-                    Poll::Pending => Poll::Pending,
-                };
+                return Pin::new(&mut *tls_accept)
+                    .poll(cx)
+                    .map_ok(|tls| (tls.compat(), self.service.take().unwrap()));
             }
-            return match Pin::new(&mut self.acme_accept).poll(cx) {
-                Poll::Ready(Ok(Some(start_handshake))) => {
-                    let config = self.config.clone();
-                    self.tls_accept = Some(start_handshake.into_stream(config));
-                    continue;
-                }
-                Poll::Ready(Ok(None)) => Poll::Ready(Err(io::Error::new(ErrorKind::Other, "TLS-ALPN-01 validation request"))),
-                Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
-                Poll::Pending => Poll::Pending,
+            let poll = Pin::new(&mut self.acme_accept).poll(cx);
+            let Poll::Ready(Ok(start_handshake)) = poll else {
+                return poll.map_ok(|_| unreachable!());
             };
+            if let Some(start_handshake) = start_handshake {
+                let config = self.config.clone();
+                self.tls_accept = Some(start_handshake.into_stream(config));
+            } else {
+                return Poll::Ready(Err(io::Error::new(ErrorKind::Other, "TLS-ALPN-01 validation request")));
+            }
         }
     }
 }
