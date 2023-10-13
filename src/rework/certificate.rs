@@ -5,7 +5,7 @@ use bytes::Bytes;
 use chrono::{DateTime, TimeZone, Utc};
 use rustls::sign::{any_ecdsa_type, CertifiedKey};
 use rustls::{Certificate, ClientConfig, PrivateKey};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use x509_parser::certificate::Validity;
 use x509_parser::extensions::GeneralName;

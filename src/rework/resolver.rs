@@ -198,6 +198,7 @@ impl<C> StreamlinedResolver<C> {
     where
         C: Send + Sync + 'static,
     {
+        #[allow(deprecated)]
         AcmeAcceptor::new(self.clone())
     }
 
