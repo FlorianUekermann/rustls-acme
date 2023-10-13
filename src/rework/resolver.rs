@@ -12,6 +12,7 @@ use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::CertifiedKey;
 use rustls::ClientConfig;
 use std::borrow::Borrow;
+use std::collections::HashSet;
 
 use log::error;
 use std::future::Future;
@@ -19,12 +20,11 @@ use std::pin::{pin, Pin};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use stream_throttle::{ThrottlePool, ThrottleRate};
-use vec_collections::{AbstractVecSet, VecSet2};
 
 #[derive(Default)]
 pub struct InnerResolver {
     map: MultiKeyMap<String, Arc<CertificateHandle>>,
-    keys: VecSet2<String>,
+    keys: HashSet<String>,
 }
 
 pub struct StreamlinedResolver<C> {
@@ -150,7 +150,7 @@ impl<C> StreamlinedResolver<C> {
         {
             let domains = handle.domains();
             let mut lock = self.inner.lock().unwrap();
-            if !lock.keys.is_disjoint(domains) {
+            if domains.iter().any(|domain| lock.keys.contains(domain)) {
                 return Err(CertParseError::InvalidDns);
             }
             lock.keys.extend(domains.iter().cloned());

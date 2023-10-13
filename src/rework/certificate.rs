@@ -5,9 +5,8 @@ use bytes::Bytes;
 use chrono::{DateTime, TimeZone, Utc};
 use rustls::sign::{any_ecdsa_type, CertifiedKey};
 use rustls::{Certificate, ClientConfig, PrivateKey};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use vec_collections::VecSet2;
 use x509_parser::certificate::Validity;
 use x509_parser::extensions::GeneralName;
 use x509_parser::parse_x509_certificate;
@@ -22,7 +21,7 @@ pub struct FinalCertificate {
 #[derive(Clone)]
 pub struct CertificateInfo {
     pub automatic: bool,
-    pub domains: VecSet2<String>,
+    pub domains: Vec<String>,
     pub validity: [DateTime<Utc>; 2],
     pub pem: Bytes,
 }
@@ -37,7 +36,7 @@ impl InnerCertificateHandle {}
 
 pub struct CertificateHandle {
     inner: Mutex<InnerCertificateHandle>,
-    domains: VecSet2<String>,
+    domains: Vec<String>,
 }
 
 impl CertificateHandle {
@@ -50,6 +49,7 @@ impl CertificateHandle {
             }),
             domains: domains.into_iter().map(Into::into).collect(),
         }
+        .normalize_domains()
     }
 
     pub fn from_pem(pem: impl Into<Bytes>, automatic: bool) -> Result<Self, CertParseError> {
@@ -63,7 +63,7 @@ impl CertificateHandle {
         let (_, x509) = parse_x509_certificate(&cert_chain.first().unwrap().0).map_err(CertParseError::X509)?;
         let Validity { not_before, not_after } = x509.validity();
         let validity = [not_before, not_after].map(|t| Utc.timestamp_opt(t.timestamp(), 0).earliest().unwrap());
-        let domains: VecSet2<_> = x509
+        let domains: Vec<_> = x509
             .subject_alternative_name()
             .ok()
             .flatten()
@@ -91,7 +91,14 @@ impl CertificateHandle {
         Ok(Self {
             inner: Mutex::new(inner),
             domains,
-        })
+        }
+        .normalize_domains())
+    }
+
+    fn normalize_domains(mut self) -> Self {
+        self.domains.sort();
+        self.domains.dedup();
+        self
     }
 
     pub fn use_pem(&self, pem: impl Into<Bytes>, automatic: bool) -> Result<CertificateInfo, CertParseError> {
@@ -101,7 +108,7 @@ impl CertificateHandle {
         Ok(info)
     }
 
-    pub fn domains(&self) -> &VecSet2<String> {
+    pub fn domains(&self) -> &[String] {
         &self.domains
     }
     pub fn get_certificate(&self) -> Option<Arc<CertifiedKey>> {

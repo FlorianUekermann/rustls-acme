@@ -18,7 +18,7 @@ struct OrderProcess<'a> {
 }
 impl<'a> OrderProcess<'a> {
     async fn new(account: &'a Account, client_config: &'a Arc<ClientConfig>, handle: &'a CertificateHandle) -> Result<OrderProcess<'a>, AcmeError> {
-        let (url, order) = account.new_order(client_config, handle.domains().iter()).await?;
+        let (url, order) = account.new_order(client_config, handle.domains()).await?;
         let mut params = CertificateParams::new(order.identifiers.iter().map(|it| it.to_string()).collect::<Vec<_>>());
         params.distinguished_name = DistinguishedName::new();
         params.alg = &PKCS_ECDSA_P256_SHA256;
