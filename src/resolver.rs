@@ -1,9 +1,10 @@
-use crate::acme::ACME_TLS_ALPN_NAME;
 use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::CertifiedKey;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::Mutex;
+
+use crate::is_tls_alpn_challenge;
 
 pub struct ResolvesServerCertAcme {
     inner: Mutex<Inner>,
@@ -33,7 +34,7 @@ impl ResolvesServerCertAcme {
 
 impl ResolvesServerCert for ResolvesServerCertAcme {
     fn resolve(&self, client_hello: ClientHello) -> Option<Arc<CertifiedKey>> {
-        let is_acme_challenge = client_hello.alpn().into_iter().flatten().eq([ACME_TLS_ALPN_NAME]);
+        let is_acme_challenge = is_tls_alpn_challenge(&client_hello);
         if is_acme_challenge {
             match client_hello.server_name() {
                 None => {

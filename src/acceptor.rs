@@ -1,5 +1,5 @@
 use crate::acme::ACME_TLS_ALPN_NAME;
-use crate::ResolvesServerCertAcme;
+use crate::{is_tls_alpn_challenge, ResolvesServerCertAcme};
 use core::fmt;
 use futures::prelude::*;
 use futures_rustls::{Accept, LazyConfigAcceptor, StartHandshake};
@@ -16,6 +16,7 @@ pub struct AcmeAcceptor {
 }
 
 impl AcmeAcceptor {
+    #[deprecated(note = "please use high-level API via `AcmeState::incoming()` instead or refer to updated low-level API examples")]
     pub(crate) fn new(resolver: Arc<ResolvesServerCertAcme>) -> Self {
         let mut config = ServerConfig::builder()
             .with_safe_defaults()
@@ -66,8 +67,7 @@ impl<IO: AsyncRead + AsyncWrite + Unpin> Future for AcmeAccept<IO> {
 
             return match Pin::new(&mut self.acceptor).poll(cx) {
                 Poll::Ready(Ok(handshake)) => {
-                    let is_validation = handshake.client_hello().alpn().into_iter().flatten().eq([ACME_TLS_ALPN_NAME]);
-                    if is_validation {
+                    if is_tls_alpn_challenge(&handshake.client_hello()) {
                         self.validation_accept = Some(handshake.into_stream(self.config.clone()));
                         continue;
                     }

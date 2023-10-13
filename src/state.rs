@@ -1,5 +1,5 @@
 use crate::acceptor::AcmeAcceptor;
-use crate::acme::{Account, AcmeError, Auth, AuthStatus, Directory, Identifier, Order, OrderStatus};
+use crate::acme::{Account, AcmeError, Auth, AuthStatus, Directory, Identifier, Order, OrderStatus, ACME_TLS_ALPN_NAME};
 use crate::{AcmeConfig, Incoming, ResolvesServerCertAcme};
 use async_io::Timer;
 use chrono::{DateTime, TimeZone, Utc};
@@ -9,8 +9,8 @@ use futures::prelude::*;
 use futures::ready;
 use rcgen::{CertificateParams, DistinguishedName, RcgenError, PKCS_ECDSA_P256_SHA256};
 use rustls::sign::{any_ecdsa_type, CertifiedKey};
-use rustls::Certificate as RustlsCertificate;
 use rustls::PrivateKey;
+use rustls::{Certificate as RustlsCertificate, ServerConfig};
 use std::convert::Infallible;
 use std::fmt::Debug;
 use std::future::Future;
@@ -102,9 +102,12 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         tcp_incoming: ITCP,
         alpn_protocols: Vec<Vec<u8>>,
     ) -> Incoming<TCP, ETCP, ITCP, EC, EA> {
+        #[allow(deprecated)]
         let acceptor = self.acceptor();
         Incoming::new(tcp_incoming, self, acceptor, alpn_protocols)
     }
+    #[deprecated(note = "please use high-level API via `AcmeState::incoming()` instead or refer to updated low-level API examples")]
+    #[allow(deprecated)]
     pub fn acceptor(&self) -> AcmeAcceptor {
         AcmeAcceptor::new(self.resolver())
     }
@@ -129,10 +132,30 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
     }
     #[cfg(feature = "axum")]
     pub fn axum_acceptor(&self, rustls_config: Arc<rustls::ServerConfig>) -> crate::axum::AxumAcceptor {
+        #[allow(deprecated)]
         crate::axum::AxumAcceptor::new(self.acceptor(), rustls_config)
     }
     pub fn resolver(&self) -> Arc<ResolvesServerCertAcme> {
         self.resolver.clone()
+    }
+    /// Creates a [rustls::ServerConfig] for tls-alpn-01 challenge connections. Use this if [crate::is_tls_alpn_challenge] returns `true`.
+    pub fn challenge_rustls_config(&self) -> Arc<ServerConfig> {
+        let mut rustls_config = ServerConfig::builder()
+            .with_safe_defaults()
+            .with_no_client_auth()
+            .with_cert_resolver(self.resolver());
+        rustls_config.alpn_protocols.push(ACME_TLS_ALPN_NAME.to_vec());
+        return Arc::new(rustls_config);
+    }
+    /// Creates a default [rustls::ServerConfig] for accepting regular tls connections. Use this if [crate::is_tls_alpn_challenge] returns `false`.
+    /// If you need a [rustls::ServerConfig], which uses the certificates acquired by this [AcmeState],
+    /// you may build your own using the output of [AcmeState::resolver].
+    pub fn default_rustls_config(&self) -> Arc<ServerConfig> {
+        let rustls_config = ServerConfig::builder()
+            .with_safe_defaults()
+            .with_no_client_auth()
+            .with_cert_resolver(self.resolver());
+        return Arc::new(rustls_config);
     }
     pub fn new(config: AcmeConfig<EC, EA>) -> Self {
         let config = Arc::new(config);
