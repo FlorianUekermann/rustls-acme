@@ -203,7 +203,10 @@ impl<C> StreamlinedResolver<C> {
     }
 
     #[cfg(feature = "axum")]
-    pub fn axum_acceptor(self: &Arc<Self>, rustls_config: Arc<rustls::ServerConfig>) -> crate::axum::AxumAcceptor {
+    pub fn axum_acceptor(self: &Arc<Self>, rustls_config: Arc<rustls::ServerConfig>) -> crate::axum::AxumAcceptor
+    where
+        C: Send + Sync + 'static,
+    {
         crate::axum::AxumAcceptor::new(self.acceptor(), rustls_config)
     }
 }
