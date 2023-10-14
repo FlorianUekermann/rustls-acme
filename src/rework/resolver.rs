@@ -220,14 +220,14 @@ impl<C> StreamlinedResolver<C> {
 
 impl<C: Send + Sync> ResolvesServerCert for StreamlinedResolver<C> {
     fn resolve(&self, client_hello: ClientHello) -> Option<Arc<CertifiedKey>> {
-        let domain = client_hello.server_name().map(|it| {
+        let Some(domain) = client_hello.server_name() else {
             log::warn!("client did not supply SNI");
-            it
-        })?;
-        let inner = self.get(domain).map(|it| {
+            return None;
+        };
+        let Some(inner) = self.get(domain) else {
             log::warn!("domain {domain} has no associated tls certificate");
-            it
-        })?;
+            return None;
+        };
         if client_hello.alpn().into_iter().flatten().eq([ACME_TLS_ALPN_NAME]) {
             inner.get_challenge_certificate(domain)
         } else {
