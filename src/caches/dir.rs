@@ -2,8 +2,7 @@ use crate::acme::LETS_ENCRYPT_PRODUCTION_DIRECTORY;
 use crate::{AccountCache, CachedCertificate, CertCache, CertificateInfo, MultiCertCache};
 use async_trait::async_trait;
 use blocking::unblock;
-use futures::future::{join_all, try_join_all};
-use futures::FutureExt;
+use futures::future::join_all;
 use ring::digest::{Context, SHA256};
 use std::io::ErrorKind;
 use std::path::Path;
@@ -98,7 +97,7 @@ impl<T: AsRef<Path> + Send + Sync> MultiCertCache for DirCache<T> {
                     }
                 }
             };
-            Ok(dir.filter_map(|it| it.ok().map(|it| it.path())).collect())
+            Result::<_, std::io::Error>::Ok(dir.filter_map(|it| it.ok().map(|it| it.path())).collect())
         })
         .await?;
         Ok(join_all(paths.into_iter().map(|path| unblock(move || std::fs::read(&path))))
@@ -122,6 +121,6 @@ impl<T: AsRef<Path> + Send + Sync> MultiCertCache for DirCache<T> {
 
     async fn store_cert(&self, cert: &CertificateInfo) -> Result<(), Self::EC> {
         let file_name = Self::cached_cert_file_name(&cert.domains, LETS_ENCRYPT_PRODUCTION_DIRECTORY);
-        self.write(file_name, cert).await
+        self.write(file_name, &cert.pem).await
     }
 }
