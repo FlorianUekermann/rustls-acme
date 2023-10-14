@@ -62,7 +62,7 @@ impl<C> StreamlinedResolver<C> {
         account: impl Borrow<Account> + Send + Sync,
         client_config: impl Borrow<Arc<ClientConfig>> + Send + Sync,
         cache: C,
-    ) -> Result<(Arc<Self>, Updater<impl Future + Send>), ResolverError<C::EC>>
+    ) -> Result<(Arc<Self>, Updater<impl Future<Output = ()> + Send>), ResolverError<C::EC>>
     where
         C: MultiCertCache,
     {
@@ -84,7 +84,7 @@ impl<C> StreamlinedResolver<C> {
         self: Arc<Self>,
         account: impl Borrow<Account> + Send + Sync,
         client_config: impl Borrow<Arc<ClientConfig>> + Send + Sync,
-    ) -> Updater<impl Future + Send>
+    ) -> Updater<impl Future<Output = ()> + Send>
     where
         C: MultiCertCache,
     {
