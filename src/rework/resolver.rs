@@ -127,12 +127,15 @@ impl<C> StreamlinedResolver<C> {
     }
     pub async fn get_or_create_domain_handle<S: Into<String>>(
         &self,
-        domains: impl Borrow<[String]> + IntoIterator<Item = S>,
+        domains: impl IntoIterator<Item = S>,
         automatic: bool,
     ) -> Result<Arc<CertificateHandle>, ResolverError<C::EC>>
     where
         C: MultiCertCache,
     {
+        let mut domains: Vec<_> = domains.into_iter().map(Into::into).collect();
+        domains.sort();
+        domains.dedup();
         Ok(
             if let Some(existing) = self.cache.load_cert(domains.borrow()).await.map_err(ResolverError::Cache)? {
                 self.create_pem_handle(existing.pem, existing.automatic)?
