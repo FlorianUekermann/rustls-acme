@@ -1,8 +1,9 @@
-use crate::caches::TestCache;
+use crate::caches::{DirCache, TestCache};
 use crate::{CertCache, CertificateInfo};
 use async_trait::async_trait;
 pub use bytes::Bytes;
 use std::fmt::Debug;
+use std::path::Path;
 
 #[derive(Clone)]
 pub struct CachedCertificate {

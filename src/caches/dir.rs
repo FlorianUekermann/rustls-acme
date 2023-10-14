@@ -1,6 +1,9 @@
-use crate::{AccountCache, CertCache};
+use crate::acme::LETS_ENCRYPT_PRODUCTION_DIRECTORY;
+use crate::{AccountCache, CachedCertificate, CertCache, CertificateInfo, MultiCertCache};
 use async_trait::async_trait;
 use blocking::unblock;
+use futures::future::{join_all, try_join_all};
+use futures::FutureExt;
 use ring::digest::{Context, SHA256};
 use std::io::ErrorKind;
 use std::path::Path;
@@ -76,5 +79,49 @@ impl<P: AsRef<Path> + Send + Sync> AccountCache for DirCache<P> {
     async fn store_account(&self, contact: &[String], directory_url: &str, account: &[u8]) -> Result<(), Self::EA> {
         let file_name = Self::cached_account_file_name(&contact, directory_url);
         self.write(file_name, account).await
+    }
+}
+
+#[async_trait]
+impl<T: AsRef<Path> + Send + Sync> MultiCertCache for DirCache<T> {
+    type EC = std::io::Error;
+
+    async fn load_all_certs(&self) -> Result<Vec<CachedCertificate>, Self::EC> {
+        let path = self.inner.as_ref().join(self.inner.as_ref());
+        let paths: Vec<_> = unblock(move || {
+            let dir = match std::fs::read_dir(&path) {
+                Ok(dir) => dir,
+                Err(err) => {
+                    return match err.kind() {
+                        ErrorKind::NotFound => Ok(vec![]),
+                        _ => Err(err.into()),
+                    }
+                }
+            };
+            Ok(dir.filter_map(|it| it.ok().map(|it| it.path())).collect())
+        })
+        .await?;
+        Ok(join_all(paths.into_iter().map(|path| unblock(move || std::fs::read(&path))))
+            .await
+            .into_iter()
+            .filter_map(|it| it.ok())
+            .map(|it| CachedCertificate {
+                automatic: true,
+                pem: it.into(),
+            })
+            .collect())
+    }
+
+    async fn load_cert(&self, domains: &[String]) -> Result<Option<CachedCertificate>, Self::EC> {
+        let file_name = Self::cached_cert_file_name(&domains, LETS_ENCRYPT_PRODUCTION_DIRECTORY);
+        Ok(self.read_if_exist(file_name).await?.map(|it| CachedCertificate {
+            automatic: true,
+            pem: it.into(),
+        }))
+    }
+
+    async fn store_cert(&self, cert: &CertificateInfo) -> Result<(), Self::EC> {
+        let file_name = Self::cached_cert_file_name(&cert.domains, LETS_ENCRYPT_PRODUCTION_DIRECTORY);
+        self.write(file_name, cert).await
     }
 }
