@@ -59,10 +59,10 @@ impl Drop for Handle {
 
 impl<C> StreamlinedResolver<C> {
     pub async fn new_with_updater(
-        account: impl Borrow<Account>,
-        client_config: impl Borrow<Arc<ClientConfig>>,
+        account: impl Borrow<Account> + Send + Sync,
+        client_config: impl Borrow<Arc<ClientConfig>> + Send + Sync,
         cache: C,
-    ) -> Result<(Arc<Self>, Updater<impl Future + Sized>), ResolverError<C::EC>>
+    ) -> Result<(Arc<Self>, Updater<impl Future + Send>), ResolverError<C::EC>>
     where
         C: MultiCertCache,
     {
@@ -80,7 +80,11 @@ impl<C> StreamlinedResolver<C> {
         Ok((this, updater))
     }
 
-    pub(crate) fn updater(self: Arc<Self>, account: impl Borrow<Account>, client_config: impl Borrow<Arc<ClientConfig>>) -> Updater<impl Future>
+    pub(crate) fn updater(
+        self: Arc<Self>,
+        account: impl Borrow<Account> + Send + Sync,
+        client_config: impl Borrow<Arc<ClientConfig>> + Send + Sync,
+    ) -> Updater<impl Future + Send>
     where
         C: MultiCertCache,
     {
