@@ -1,6 +1,6 @@
 use crate::acme::{Account, ACME_TLS_ALPN_NAME};
 use crate::rework::certificate::CertificateHandle;
-use crate::{AcmeAcceptor, CertParseError, CertificateShouldUpdate, MultiCertCache, OrderError, ResolverError};
+use crate::{is_tls_alpn_challenge, AcmeAcceptor, CertParseError, CertificateShouldUpdate, MultiCertCache, OrderError, ResolverError};
 use async_io::Timer;
 use async_notify::Notify;
 use bytes::Bytes;
@@ -122,11 +122,7 @@ impl<C> StreamlinedResolver<C> {
         self.inner.lock().unwrap().map.get(domain).cloned()
     }
 
-    pub fn create_domain_handle<S: Into<String>>(
-        &self,
-        domains: impl IntoIterator<Item = S>,
-        automatic: bool,
-    ) -> Result<Arc<CertificateHandle>, CertParseError> {
+    pub fn create_domain_handle<S: Into<String>>(&self, domains: impl IntoIterator<Item = S>, automatic: bool) -> Arc<CertificateHandle> {
         self.create_handle(CertificateHandle::from_domains(domains, automatic))
     }
     pub async fn get_or_create_domain_handle<S: Into<String>>(
@@ -150,21 +146,27 @@ impl<C> StreamlinedResolver<C> {
     }
 
     pub fn create_pem_handle(&self, pem: impl Into<Bytes>, automatic: bool) -> Result<Arc<CertificateHandle>, CertParseError> {
-        self.create_handle(CertificateHandle::from_pem(pem, automatic)?)
+        Ok(self.create_handle(CertificateHandle::from_pem(pem, automatic)?))
     }
-    fn create_handle(&self, handle: CertificateHandle) -> Result<Arc<CertificateHandle>, CertParseError> {
+    pub fn create_handle(&self, handle: CertificateHandle) -> Arc<CertificateHandle> {
         let handle = Arc::new(handle);
-        {
-            let domains = handle.domains();
-            let mut lock = self.inner.lock().unwrap();
-            if domains.iter().any(|domain| lock.keys.contains(domain)) {
-                return Err(CertParseError::InvalidDns);
+        let domains = handle.domains();
+        let mut lock = self.inner.lock().unwrap();
+        lock.keys.extend(domains.iter().cloned());
+        let handle_exp = handle.get_validity().map(|it| it[1]);
+        for domain in domains {
+            if let Some(existing) = lock.map.get(domain) {
+                if let (Some(this), existing) = (handle_exp, existing.get_validity().map(|it| it[1])) {
+                    if existing.map(|existing| this > existing).unwrap_or(true) {
+                        lock.map.insert(domain.clone(), handle.clone());
+                    }
+                }
+            } else {
+                lock.map.insert(domain.clone(), handle.clone());
             }
-            lock.keys.extend(domains.iter().cloned());
-            lock.map.insert_many(domains.iter().cloned().collect(), handle.clone());
         }
         self.notifier.notify();
-        Ok(handle)
+        handle
     }
 
     pub fn get_all_handles(&self) -> Vec<Arc<CertificateHandle>> {
@@ -214,6 +216,7 @@ impl<C> StreamlinedResolver<C> {
     where
         C: Send + Sync + 'static,
     {
+        #[allow(deprecated)]
         crate::axum::AxumAcceptor::new(self.acceptor(), rustls_config)
     }
 }
@@ -228,7 +231,7 @@ impl<C: Send + Sync> ResolvesServerCert for StreamlinedResolver<C> {
             log::warn!("domain {domain} has no associated tls certificate");
             return None;
         };
-        if client_hello.alpn().into_iter().flatten().eq([ACME_TLS_ALPN_NAME]) {
+        if is_tls_alpn_challenge(&client_hello) {
             inner.get_challenge_certificate(domain)
         } else {
             inner.get_certificate()

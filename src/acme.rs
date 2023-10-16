@@ -87,20 +87,24 @@ impl Account {
     ) -> Result<(String, Order), AcmeError> {
         let domains: Vec<SerIdentifier<'d>> = domains.into_iter().map(Into::into).collect();
         let payload = format!("{{\"identifiers\":{}}}", serde_json::to_string(&domains)?);
+        log::debug!("new order: {:?}", payload);
         let response = self.request(client_config, &self.directory.new_order, &payload).await?;
         let url = response.0.ok_or(AcmeError::MissingHeader("Location"))?;
         let order = serde_json::from_str(&response.1)?;
         Ok((url, order))
     }
     pub async fn auth(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>) -> Result<Auth, AcmeError> {
+        log::debug!("auth");
         let response = self.request(client_config, url, "").await?;
         Ok(serde_json::from_str(&response.1)?)
     }
     pub async fn challenge(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>) -> Result<(), AcmeError> {
+        log::debug!("challenge");
         self.request(client_config, url, "{}").await?;
         Ok(())
     }
     pub async fn order(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>) -> Result<Order, AcmeError> {
+        log::debug!("order");
         let response = self.request(client_config, url, "").await?;
         Ok(serde_json::from_str(&response.1)?)
     }
