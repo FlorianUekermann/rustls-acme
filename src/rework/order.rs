@@ -18,7 +18,9 @@ struct OrderProcess<'a> {
 }
 impl<'a> OrderProcess<'a> {
     async fn new(account: &'a Account, client_config: &'a Arc<ClientConfig>, handle: &'a CertificateHandle) -> Result<OrderProcess<'a>, AcmeError> {
+        log::info!("starting order");
         let (url, order) = account.new_order(client_config, handle.domains()).await?;
+        log::debug!("order: {:?}", order);
         let mut params = CertificateParams::new(order.identifiers.iter().map(|it| it.to_string()).collect::<Vec<_>>());
         params.distinguished_name = DistinguishedName::new();
         params.alg = &PKCS_ECDSA_P256_SHA256;
@@ -34,6 +36,7 @@ impl<'a> OrderProcess<'a> {
     }
 
     async fn update(mut self) -> Result<OrderProcess<'a>, AcmeError> {
+        log::debug!("updating order");
         let Self {
             ref account,
             ref client_config,
@@ -46,7 +49,7 @@ impl<'a> OrderProcess<'a> {
     }
 
     async fn authorize(self) -> Result<OrderProcess<'a>, OrderError> {
-        authorize_all(&self.client_config, &self.handle, &self.account, self.order.identifiers.iter()).await?;
+        authorize_all(&self.client_config, &self.handle, &self.account, self.order.authorizations.iter()).await?;
         log::info!("completed all authorizations");
         Ok(self.update().await?)
     }
