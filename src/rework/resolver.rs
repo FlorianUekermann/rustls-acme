@@ -1,4 +1,4 @@
-use crate::acme::{Account, ACME_TLS_ALPN_NAME};
+use crate::acme::Account;
 use crate::rework::certificate::CertificateHandle;
 use crate::{is_tls_alpn_challenge, AcmeAcceptor, CertParseError, CertificateShouldUpdate, MultiCertCache, OrderError, ResolverError};
 use async_io::Timer;
@@ -140,7 +140,7 @@ impl<C> StreamlinedResolver<C> {
             if let Some(existing) = self.cache.load_cert(domains.borrow()).await.map_err(ResolverError::Cache)? {
                 self.create_pem_handle(existing.pem, existing.automatic)?
             } else {
-                self.create_handle(CertificateHandle::from_domains(domains, automatic))?
+                self.create_handle(CertificateHandle::from_domains(domains, automatic))
             },
         )
     }
