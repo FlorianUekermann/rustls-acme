@@ -29,7 +29,7 @@ async-io = "1.6.0"
 tokio = { version= "1.20.1", optional= true }
 tokio-util = { version="0.7.3", features = ["compat"], optional=true }
 axum-server = { version = "0.6", features = ["tls-rustls"], optional=true }
-async-web-client = "0.4"
+async-web-client = "0.5"
 http = "1"
 blocking = "1.4.1"
 
