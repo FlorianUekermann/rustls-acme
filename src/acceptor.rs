@@ -2,9 +2,9 @@ use crate::acme::ACME_TLS_ALPN_NAME;
 use crate::{is_tls_alpn_challenge, ResolvesServerCertAcme};
 use core::fmt;
 use futures::prelude::*;
+use futures_rustls::rustls::server::Acceptor;
+use futures_rustls::rustls::ServerConfig;
 use futures_rustls::{Accept, LazyConfigAcceptor, StartHandshake};
-use rustls::server::Acceptor;
-use rustls::ServerConfig;
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -18,10 +18,7 @@ pub struct AcmeAcceptor {
 impl AcmeAcceptor {
     #[deprecated(note = "please use high-level API via `AcmeState::incoming()` instead or refer to updated low-level API examples")]
     pub(crate) fn new(resolver: Arc<ResolvesServerCertAcme>) -> Self {
-        let mut config = ServerConfig::builder()
-            .with_safe_defaults()
-            .with_no_client_auth()
-            .with_cert_resolver(resolver.clone());
+        let mut config = ServerConfig::builder().with_no_client_auth().with_cert_resolver(resolver.clone());
         config.alpn_protocols.push(ACME_TLS_ALPN_NAME.to_vec());
         Self { config: Arc::new(config) }
     }

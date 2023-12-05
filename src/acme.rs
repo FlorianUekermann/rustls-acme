@@ -3,14 +3,15 @@ use std::sync::Arc;
 use crate::https_helper::{https, HttpsRequestError};
 use crate::jose::{key_authorization_sha256, sign, JoseError};
 use base64::URL_SAFE_NO_PAD;
+use futures_rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use futures_rustls::rustls::crypto::ring::sign::any_ecdsa_type;
+use futures_rustls::rustls::{sign::CertifiedKey, ClientConfig};
 use http::header::ToStrError;
 use http::{Method, Response};
 use rcgen::{Certificate, CustomExtension, RcgenError, PKCS_ECDSA_P256_SHA256};
 use ring::error::{KeyRejected, Unspecified};
 use ring::rand::SystemRandom;
 use ring::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm, ECDSA_P256_SHA256_FIXED_SIGNING};
-use rustls::sign::{any_ecdsa_type, CertifiedKey};
-use rustls::{ClientConfig, PrivateKey};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use thiserror::Error;
@@ -118,8 +119,8 @@ impl Account {
         params.alg = &PKCS_ECDSA_P256_SHA256;
         params.custom_extensions = vec![CustomExtension::new_acme_identifier(key_auth.as_ref())];
         let cert = Certificate::from_params(params)?;
-        let pk = any_ecdsa_type(&PrivateKey(cert.serialize_private_key_der())).unwrap();
-        let certified_key = CertifiedKey::new(vec![rustls::Certificate(cert.serialize_der()?)], pk);
+        let pk = any_ecdsa_type(&PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(cert.serialize_private_key_der()))).unwrap();
+        let certified_key = CertifiedKey::new(vec![CertificateDer::from(cert.serialize_der()?)], pk);
         Ok((challenge, certified_key))
     }
 }

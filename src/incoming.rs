@@ -3,9 +3,9 @@ use crate::AcmeState;
 use core::fmt;
 use futures::stream::{FusedStream, FuturesUnordered};
 use futures::{AsyncRead, AsyncWrite, Stream};
+use futures_rustls::rustls::ServerConfig;
 use futures_rustls::server::TlsStream;
 use futures_rustls::Accept;
-use rustls::ServerConfig;
 use std::fmt::Debug;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -48,10 +48,7 @@ impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, 
     Incoming<TCP, ETCP, ITCP, EC, EA>
 {
     pub fn new(tcp_incoming: ITCP, state: AcmeState<EC, EA>, acceptor: AcmeAcceptor, alpn_protocols: Vec<Vec<u8>>) -> Self {
-        let mut config = ServerConfig::builder()
-            .with_safe_defaults()
-            .with_no_client_auth()
-            .with_cert_resolver(state.resolver());
+        let mut config = ServerConfig::builder().with_no_client_auth().with_cert_resolver(state.resolver());
         config.alpn_protocols = alpn_protocols;
         Self {
             state,

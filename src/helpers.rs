@@ -1,4 +1,4 @@
-use rustls::server::ClientHello;
+use futures_rustls::rustls::server::ClientHello;
 
 use crate::acme::ACME_TLS_ALPN_NAME;
 

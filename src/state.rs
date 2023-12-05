@@ -7,10 +7,10 @@ use core::fmt;
 use futures::future::try_join_all;
 use futures::prelude::*;
 use futures::ready;
+use futures_rustls::pki_types::{CertificateDer as RustlsCertificate, PrivateKeyDer, PrivatePkcs8KeyDer};
+use futures_rustls::rustls::sign::CertifiedKey;
+use futures_rustls::rustls::{crypto::ring::sign::any_ecdsa_type, ServerConfig};
 use rcgen::{CertificateParams, DistinguishedName, RcgenError, PKCS_ECDSA_P256_SHA256};
-use rustls::sign::{any_ecdsa_type, CertifiedKey};
-use rustls::PrivateKey;
-use rustls::{Certificate as RustlsCertificate, ServerConfig};
 use std::convert::Infallible;
 use std::fmt::Debug;
 use std::future::Future;
@@ -140,10 +140,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
     }
     /// Creates a [rustls::ServerConfig] for tls-alpn-01 challenge connections. Use this if [crate::is_tls_alpn_challenge] returns `true`.
     pub fn challenge_rustls_config(&self) -> Arc<ServerConfig> {
-        let mut rustls_config = ServerConfig::builder()
-            .with_safe_defaults()
-            .with_no_client_auth()
-            .with_cert_resolver(self.resolver());
+        let mut rustls_config = ServerConfig::builder().with_no_client_auth().with_cert_resolver(self.resolver());
         rustls_config.alpn_protocols.push(ACME_TLS_ALPN_NAME.to_vec());
         return Arc::new(rustls_config);
     }
@@ -151,10 +148,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
     /// If you need a [rustls::ServerConfig], which uses the certificates acquired by this [AcmeState],
     /// you may build your own using the output of [AcmeState::resolver].
     pub fn default_rustls_config(&self) -> Arc<ServerConfig> {
-        let rustls_config = ServerConfig::builder()
-            .with_safe_defaults()
-            .with_no_client_auth()
-            .with_cert_resolver(self.resolver());
+        let rustls_config = ServerConfig::builder().with_no_client_auth().with_cert_resolver(self.resolver());
         return Arc::new(rustls_config);
     }
     pub fn new(config: AcmeConfig<EC, EA>) -> Self {
@@ -177,17 +171,17 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             wait: None,
         }
     }
-    fn parse_cert(pem: &[u8]) -> Result<(CertifiedKey, [DateTime<Utc>; 2]), CertParseError> {
+    fn parse_cert(pem: &[u8]) -> Result<(futures_rustls::rustls::sign::CertifiedKey, [DateTime<Utc>; 2]), CertParseError> {
         let mut pems = pem::parse_many(&pem)?;
         if pems.len() < 2 {
             return Err(CertParseError::TooFewPem(pems.len()));
         }
-        let pk = match any_ecdsa_type(&PrivateKey(pems.remove(0).contents)) {
+        let pk = match any_ecdsa_type(&PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(pems.remove(0).contents))) {
             Ok(pk) => pk,
             Err(_) => return Err(CertParseError::InvalidPrivateKey),
         };
-        let cert_chain: Vec<RustlsCertificate> = pems.into_iter().map(|p| RustlsCertificate(p.contents)).collect();
-        let validity = match parse_x509_certificate(cert_chain[0].0.as_slice()) {
+        let cert_chain: Vec<RustlsCertificate> = pems.into_iter().map(|p| RustlsCertificate::from(p.contents)).collect();
+        let validity = match parse_x509_certificate(&cert_chain[0]) {
             Ok((_, cert)) => {
                 let validity = cert.validity();
                 [validity.not_before, validity.not_after].map(|t| Utc.timestamp_opt(t.timestamp(), 0).earliest().unwrap())

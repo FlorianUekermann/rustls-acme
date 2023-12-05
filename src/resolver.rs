@@ -1,15 +1,19 @@
-use rustls::server::{ClientHello, ResolvesServerCert};
-use rustls::sign::CertifiedKey;
+use futures_rustls::rustls::{
+    server::{ClientHello, ResolvesServerCert},
+    sign::CertifiedKey,
+};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use crate::is_tls_alpn_challenge;
 
+#[derive(Debug)]
 pub struct ResolvesServerCertAcme {
     inner: Mutex<Inner>,
 }
 
+#[derive(Debug)]
 struct Inner {
     cert: Option<Arc<CertifiedKey>>,
     auth_keys: BTreeMap<String, Arc<CertifiedKey>>,

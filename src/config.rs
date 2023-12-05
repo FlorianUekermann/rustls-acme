@@ -4,7 +4,8 @@ use crate::{AccountCache, Cache, CertCache};
 use crate::{AcmeState, Incoming};
 use core::fmt;
 use futures::{AsyncRead, AsyncWrite, Stream};
-use rustls::{ClientConfig, RootCertStore};
+use futures_rustls::pki_types::TrustAnchor;
+use futures_rustls::rustls::{ClientConfig, RootCertStore};
 use std::convert::Infallible;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -50,17 +51,12 @@ impl AcmeConfig<Infallible, Infallible> {
     ///
     pub fn new(domains: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
         let mut root_store = RootCertStore::empty();
-        root_store.add_trust_anchors(
-            TLS_SERVER_ROOTS
-                .iter()
-                .map(|ta| rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(ta.subject, ta.spki, ta.name_constraints)),
-        );
-        let client_config = Arc::new(
-            ClientConfig::builder()
-                .with_safe_defaults()
-                .with_root_certificates(root_store)
-                .with_no_client_auth(),
-        );
+        root_store.extend(TLS_SERVER_ROOTS.iter().map(|ta| TrustAnchor {
+            subject: ta.subject.into(),
+            subject_public_key_info: ta.spki.into(),
+            name_constraints: ta.name_constraints.map(Into::into),
+        }));
+        let client_config = Arc::new(ClientConfig::builder().with_root_certificates(root_store).with_no_client_auth());
         AcmeConfig {
             client_config,
             directory_url: LETS_ENCRYPT_STAGING_DIRECTORY.into(),

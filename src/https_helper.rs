@@ -1,9 +1,9 @@
 use async_web_client::RequestSend;
 use futures::AsyncReadExt;
+use futures_rustls::pki_types::InvalidDnsNameError;
 use futures_rustls::rustls::ClientConfig;
 use http::header::CONTENT_TYPE;
 use http::{Method, Request, Response};
-use rustls::client::InvalidDnsNameError;
 use std::io;
 use std::sync::Arc;
 use thiserror::Error;
