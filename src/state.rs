@@ -131,7 +131,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         crate::tokio::TokioIncoming::from(self.incoming(tcp_incoming, alpn_protocols))
     }
     #[cfg(feature = "axum")]
-    pub fn axum_acceptor(&self, rustls_config: Arc<rustls::ServerConfig>) -> crate::axum::AxumAcceptor {
+    pub fn axum_acceptor(&self, rustls_config: Arc<ServerConfig>) -> crate::axum::AxumAcceptor {
         #[allow(deprecated)]
         crate::axum::AxumAcceptor::new(self.acceptor(), rustls_config)
     }

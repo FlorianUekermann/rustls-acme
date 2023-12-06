@@ -1,7 +1,7 @@
+use crate::futures_rustls::rustls::ServerConfig;
 use crate::{AcmeAccept, AcmeAcceptor};
 use futures::prelude::*;
 use futures_rustls::Accept;
-use rustls::ServerConfig;
 use std::io;
 use std::io::ErrorKind;
 use std::pin::Pin;

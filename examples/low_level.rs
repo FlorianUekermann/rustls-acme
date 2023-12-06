@@ -1,8 +1,8 @@
 use clap::Parser;
 use futures::AsyncWriteExt;
 use futures::StreamExt;
-use futures_rustls::LazyConfigAcceptor;
 use rustls_acme::caches::DirCache;
+use rustls_acme::futures_rustls::LazyConfigAcceptor;
 use rustls_acme::is_tls_alpn_challenge;
 use rustls_acme::AcmeConfig;
 use smol::net::TcpListener;
