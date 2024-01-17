@@ -51,10 +51,13 @@ impl AcmeConfig<Infallible, Infallible> {
     ///
     pub fn new(domains: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
         let mut root_store = RootCertStore::empty();
-        root_store.extend(TLS_SERVER_ROOTS.iter().map(|ta| TrustAnchor {
-            subject: ta.subject.into(),
-            subject_public_key_info: ta.spki.into(),
-            name_constraints: ta.name_constraints.map(Into::into),
+        root_store.extend(TLS_SERVER_ROOTS.iter().map(|ta| {
+            let ta = ta.to_owned();
+            TrustAnchor {
+                subject: ta.subject.into(),
+                subject_public_key_info: ta.subject_public_key_info.into(),
+                name_constraints: ta.name_constraints.map(Into::into),
+            }
         }));
         let client_config = Arc::new(ClientConfig::builder().with_root_certificates(root_store).with_no_client_auth());
         AcmeConfig {
