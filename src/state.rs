@@ -10,7 +10,7 @@ use futures::ready;
 use futures_rustls::pki_types::{CertificateDer as RustlsCertificate, PrivateKeyDer, PrivatePkcs8KeyDer};
 use futures_rustls::rustls::sign::CertifiedKey;
 use futures_rustls::rustls::{crypto::ring::sign::any_ecdsa_type, ServerConfig};
-use rcgen::{CertificateParams, DistinguishedName, RcgenError, PKCS_ECDSA_P256_SHA256};
+use rcgen::{CertificateParams, DistinguishedName, PKCS_ECDSA_P256_SHA256};
 use std::convert::Infallible;
 use std::fmt::Debug;
 use std::future::Future;
@@ -73,7 +73,7 @@ pub enum OrderError {
     #[error("acme error: {0}")]
     Acme(#[from] AcmeError),
     #[error("certificate generation error: {0}")]
-    Rcgen(#[from] RcgenError),
+    Rcgen(#[from] rcgen::Error),
     #[error("bad order object: {0:?}")]
     BadOrder(Order),
     #[error("bad auth object: {0:?}")]
