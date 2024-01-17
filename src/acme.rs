@@ -8,7 +8,7 @@ use futures_rustls::rustls::crypto::ring::sign::any_ecdsa_type;
 use futures_rustls::rustls::{sign::CertifiedKey, ClientConfig};
 use http::header::ToStrError;
 use http::{Method, Response};
-use rcgen::{Certificate, CustomExtension, RcgenError, PKCS_ECDSA_P256_SHA256};
+use rcgen::{Certificate, CustomExtension, PKCS_ECDSA_P256_SHA256};
 use ring::error::{KeyRejected, Unspecified};
 use ring::rand::SystemRandom;
 use ring::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm, ECDSA_P256_SHA256_FIXED_SIGNING};
@@ -221,7 +221,7 @@ pub enum AcmeError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("certificate generation error: {0}")]
-    Rcgen(#[from] RcgenError),
+    Rcgen(#[from] rcgen::Error),
     #[error("JOSE error: {0}")]
     Jose(#[from] JoseError),
     #[error("JSON error: {0}")]
