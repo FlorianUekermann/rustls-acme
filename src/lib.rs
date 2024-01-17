@@ -27,7 +27,7 @@
 //! use futures::prelude::*;
 //! use rustls_acme::{AcmeConfig, caches::DirCache};
 //!
-//! #[smol_potat::main]
+//! #[macro_rules_attribute::apply(smol_macros::main!)]
 //! async fn main() {
 //!     simple_logger::init_with_level(log::Level::Info).unwrap();
 //!
