@@ -35,7 +35,6 @@ blocking = "1.4.1"
 
 [dev-dependencies]
 simple_logger = "2.1.0"
-structopt = "0.3.26"
 clap = { version = "3.1.18", features = ["derive"] }
 axum = "0.7"
 tokio = { version="1.35.1", features = ["full"] }
