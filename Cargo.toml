@@ -22,7 +22,7 @@ log = "0.4.17"
 webpki-roots = "0.26"
 pem = "3.0.3"
 thiserror = "1.0.31"
-x509-parser = "0.13.2"
+x509-parser = "0.15.1"
 chrono = { version = "0.4.24", default-features = false, features = ["clock"] }
 async-trait = "0.1.53"
 async-io = "2.3.0"
