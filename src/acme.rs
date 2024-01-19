@@ -1,17 +1,17 @@
 use std::sync::Arc;
 
+use crate::any_ecdsa_type;
 use crate::https_helper::{https, HttpsRequestError};
 use crate::jose::{key_authorization_sha256, sign, JoseError};
+use crate::ring::error::{KeyRejected, Unspecified};
+use crate::ring::rand::SystemRandom;
+use crate::ring::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm, ECDSA_P256_SHA256_FIXED_SIGNING};
 use base64::prelude::*;
 use futures_rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
-use futures_rustls::rustls::crypto::ring::sign::any_ecdsa_type;
 use futures_rustls::rustls::{sign::CertifiedKey, ClientConfig};
 use http::header::ToStrError;
 use http::{Method, Response};
 use rcgen::{Certificate, CustomExtension, PKCS_ECDSA_P256_SHA256};
-use ring::error::{KeyRejected, Unspecified};
-use ring::rand::SystemRandom;
-use ring::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm, ECDSA_P256_SHA256_FIXED_SIGNING};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use thiserror::Error;
@@ -53,7 +53,13 @@ impl Account {
         S: AsRef<str> + 'a,
         I: IntoIterator<Item = &'a S>,
     {
-        let key_pair = EcdsaKeyPair::from_pkcs8(ALG, key_pair, &SystemRandom::new())?;
+        let key_pair = EcdsaKeyPair::from_pkcs8(
+            ALG,
+            key_pair,
+            // ring 0.17 has a third argument here; aws-lc-rs doesn't.
+            #[cfg(feature = "ring")]
+            &SystemRandom::new(),
+        )?;
         let contact: Vec<&'a str> = contact.into_iter().map(AsRef::<str>::as_ref).collect();
         let payload = json!({
             "termsOfServiceAgreed": true,

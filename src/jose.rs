@@ -1,7 +1,7 @@
+use crate::ring::digest::{digest, Digest, SHA256};
+use crate::ring::rand::SystemRandom;
+use crate::ring::signature::{EcdsaKeyPair, KeyPair};
 use base64::prelude::*;
-use ring::digest::{digest, Digest, SHA256};
-use ring::rand::SystemRandom;
-use ring::signature::{EcdsaKeyPair, KeyPair};
 use serde::Serialize;
 use thiserror::Error;
 
@@ -110,5 +110,5 @@ pub enum JoseError {
     #[error("json serialization failed: {0}")]
     Json(#[from] serde_json::Error),
     #[error("crypto error: {0}")]
-    Crypto(#[from] ring::error::Unspecified),
+    Crypto(#[from] crate::ring::error::Unspecified),
 }

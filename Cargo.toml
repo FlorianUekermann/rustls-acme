@@ -11,12 +11,13 @@ keywords = ["acme", "rustls", "tls", "letsencrypt"]
 categories = ["asynchronous", "cryptography", "network-programming"]
 
 [dependencies]
-futures-rustls = "0.25"
+futures-rustls = { version = "0.25", default-features = false }
 futures = "0.3.21"
-rcgen = "0.12"
+rcgen = { version = "0.12", default-features = false, features = ["pem"] }
 serde_json = "1.0.81"
 serde = { version = "1.0.137", features=["derive"] }
-ring = { version = "0.17.7", features = ["std"] }
+ring = { version = "0.17.7", features = ["std"], optional = true }
+aws-lc-rs = { version = "1.5.2", optional = true, default-features = false, features = ["aws-lc-sys"] }
 base64 = "0.21.7"
 log = "0.4.17"
 webpki-roots = "0.26"
@@ -29,7 +30,7 @@ async-io = "2.3.0"
 tokio = { version= "1.20.1", optional= true }
 tokio-util = { version="0.7.3", features = ["compat"], optional=true }
 axum-server = { version = "0.6", features = ["tls-rustls"], optional=true }
-async-web-client = "0.5"
+async-web-client = { version = "0.5.1", default-features = false }
 http = "1"
 blocking = "1.4.1"
 
@@ -42,7 +43,7 @@ tokio-stream = { version="0.1.14", features = ["net"] }
 tokio-util = { version="0.7.10", features = ["compat"] }
 warp = "0.3.4"
 smol = "2.0.0"
-tokio-rustls = "0.25"
+tokio-rustls = { version = "0.25", default-features = false }
 smol-macros = "0.1.0"
 macro_rules_attribute = "0.2.0"
 
@@ -51,6 +52,9 @@ all-features = true
 rustdoc-args = ["--cfg", "doc_auto_cfg"]
 
 [features]
+default = ["ring"]
+ring = ["dep:ring", "async-web-client/ring", "rcgen/ring"]
+aws-lc-rs = ["dep:aws-lc-rs", "async-web-client/aws-lc-rs", "rcgen/aws_lc_rs"]
 axum = ["dep:axum-server", "tokio"]
 tokio = ["dep:tokio", "dep:tokio-util"]
 

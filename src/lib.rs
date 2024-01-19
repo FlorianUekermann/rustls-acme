@@ -132,3 +132,11 @@ pub use helpers::*;
 pub use incoming::*;
 pub use resolver::*;
 pub use state::*;
+
+#[cfg(feature = "aws-lc-rs")]
+use ::{aws_lc_rs as ring, futures_rustls::rustls::crypto::aws_lc_rs::sign::any_ecdsa_type};
+#[cfg(all(feature = "ring", not(feature = "aws-lc-rs")))]
+use ::{futures_rustls::rustls::crypto::ring::sign::any_ecdsa_type, ring};
+
+#[cfg(not(any(feature = "ring", feature = "aws-lc-rs")))]
+compile_error!("rustls-acme requires either the ring or aws-lc-rs feature enabled");
