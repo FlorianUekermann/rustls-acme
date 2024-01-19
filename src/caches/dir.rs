@@ -1,8 +1,8 @@
+use crate::ring::digest::{Context, SHA256};
 use crate::{AccountCache, CertCache};
 use async_trait::async_trait;
 use base64::prelude::*;
 use blocking::unblock;
-use ring::digest::{Context, SHA256};
 use std::io::ErrorKind;
 use std::path::Path;
 
