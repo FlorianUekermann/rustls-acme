@@ -1,6 +1,6 @@
 use crate::acceptor::AcmeAcceptor;
 use crate::acme::{Account, AcmeError, Auth, AuthStatus, Directory, Identifier, Order, OrderStatus, ACME_TLS_ALPN_NAME};
-use crate::{AcmeConfig, Incoming, ResolvesServerCertAcme};
+use crate::{any_ecdsa_type, crypto_provider, AcmeConfig, Incoming, ResolvesServerCertAcme};
 use async_io::Timer;
 use chrono::{DateTime, TimeZone, Utc};
 use core::fmt;
@@ -8,8 +8,9 @@ use futures::future::try_join_all;
 use futures::prelude::*;
 use futures::ready;
 use futures_rustls::pki_types::{CertificateDer as RustlsCertificate, PrivateKeyDer, PrivatePkcs8KeyDer};
+use futures_rustls::rustls::crypto::CryptoProvider;
 use futures_rustls::rustls::sign::CertifiedKey;
-use futures_rustls::rustls::{crypto::ring::sign::any_ecdsa_type, ServerConfig};
+use futures_rustls::rustls::ServerConfig;
 use rcgen::{CertificateParams, DistinguishedName, PKCS_ECDSA_P256_SHA256};
 use std::convert::Infallible;
 use std::fmt::Debug;
@@ -139,16 +140,34 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         self.resolver.clone()
     }
     /// Creates a [rustls::ServerConfig] for tls-alpn-01 challenge connections. Use this if [crate::is_tls_alpn_challenge] returns `true`.
+    #[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
     pub fn challenge_rustls_config(&self) -> Arc<ServerConfig> {
-        let mut rustls_config = ServerConfig::builder().with_no_client_auth().with_cert_resolver(self.resolver());
+        self.challenge_rustls_config_with_provider(crypto_provider().into())
+    }
+    /// Same as [AcmeState::challenge_rustls_config], with a specific [CryptoProvider].
+    pub fn challenge_rustls_config_with_provider(&self, provider: Arc<CryptoProvider>) -> Arc<ServerConfig> {
+        let mut rustls_config = ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_cert_resolver(self.resolver());
         rustls_config.alpn_protocols.push(ACME_TLS_ALPN_NAME.to_vec());
         return Arc::new(rustls_config);
     }
     /// Creates a default [rustls::ServerConfig] for accepting regular tls connections. Use this if [crate::is_tls_alpn_challenge] returns `false`.
     /// If you need a [rustls::ServerConfig], which uses the certificates acquired by this [AcmeState],
     /// you may build your own using the output of [AcmeState::resolver].
+    #[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
     pub fn default_rustls_config(&self) -> Arc<ServerConfig> {
-        let rustls_config = ServerConfig::builder().with_no_client_auth().with_cert_resolver(self.resolver());
+        self.default_rustls_config_with_provider(crypto_provider().into())
+    }
+    /// Same as [AcmeState::default_rustls_config], with a specific [CryptoProvider].
+    pub fn default_rustls_config_with_provider(&self, provider: Arc<CryptoProvider>) -> Arc<ServerConfig> {
+        let rustls_config = ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_cert_resolver(self.resolver());
         return Arc::new(rustls_config);
     }
     pub fn new(config: AcmeConfig<EC, EA>) -> Self {
@@ -171,7 +190,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             wait: None,
         }
     }
-    fn parse_cert(pem: &[u8]) -> Result<(futures_rustls::rustls::sign::CertifiedKey, [DateTime<Utc>; 2]), CertParseError> {
+    fn parse_cert(pem: &[u8]) -> Result<(CertifiedKey, [DateTime<Utc>; 2]), CertParseError> {
         let mut pems = pem::parse_many(&pem)?;
         if pems.len() < 2 {
             return Err(CertParseError::TooFewPem(pems.len()));

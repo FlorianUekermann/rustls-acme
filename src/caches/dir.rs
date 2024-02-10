@@ -1,4 +1,4 @@
-use crate::ring::digest::{Context, SHA256};
+use crate::crypto::digest::{Context, SHA256};
 use crate::{AccountCache, CertCache};
 use async_trait::async_trait;
 use base64::prelude::*;

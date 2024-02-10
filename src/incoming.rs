@@ -1,8 +1,9 @@
 use crate::acceptor::{AcmeAccept, AcmeAcceptor};
-use crate::AcmeState;
+use crate::{crypto_provider, AcmeState};
 use core::fmt;
 use futures::stream::{FusedStream, FuturesUnordered};
 use futures::{AsyncRead, AsyncWrite, Stream};
+use futures_rustls::rustls::crypto::CryptoProvider;
 use futures_rustls::rustls::ServerConfig;
 use futures_rustls::server::TlsStream;
 use futures_rustls::Accept;
@@ -47,8 +48,24 @@ impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, 
 impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin, EC: Debug + 'static, EA: Debug + 'static>
     Incoming<TCP, ETCP, ITCP, EC, EA>
 {
+    #[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
     pub fn new(tcp_incoming: ITCP, state: AcmeState<EC, EA>, acceptor: AcmeAcceptor, alpn_protocols: Vec<Vec<u8>>) -> Self {
-        let mut config = ServerConfig::builder().with_no_client_auth().with_cert_resolver(state.resolver());
+        Self::new_with_provider(tcp_incoming, state, acceptor, alpn_protocols, crypto_provider().into())
+    }
+
+    /// Same as [Incoming::new], with a specific [CryptoProvider].
+    pub fn new_with_provider(
+        tcp_incoming: ITCP,
+        state: AcmeState<EC, EA>,
+        acceptor: AcmeAcceptor,
+        alpn_protocols: Vec<Vec<u8>>,
+        provider: Arc<CryptoProvider>,
+    ) -> Self {
+        let mut config = ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_cert_resolver(state.resolver());
         config.alpn_protocols = alpn_protocols;
         Self {
             state,

@@ -134,9 +134,28 @@ pub use resolver::*;
 pub use state::*;
 
 #[cfg(feature = "aws-lc-rs")]
-use ::{aws_lc_rs as ring, futures_rustls::rustls::crypto::aws_lc_rs::sign::any_ecdsa_type};
+use ::aws_lc_rs as crypto;
 #[cfg(all(feature = "ring", not(feature = "aws-lc-rs")))]
-use ::{futures_rustls::rustls::crypto::ring::sign::any_ecdsa_type, ring};
+use ::ring as crypto;
 
+// TODO: Can we use something like CryptoProvider for rustls, but for ring to drop this requirement?
 #[cfg(not(any(feature = "ring", feature = "aws-lc-rs")))]
 compile_error!("rustls-acme requires either the ring or aws-lc-rs feature enabled");
+
+#[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
+pub(crate) fn any_ecdsa_type(
+    der: &futures_rustls::pki_types::PrivateKeyDer,
+) -> Result<std::sync::Arc<dyn futures_rustls::rustls::sign::SigningKey>, futures_rustls::rustls::Error> {
+    #[cfg(all(feature = "ring", not(feature = "aws-lc-rs")))]
+    return futures_rustls::rustls::crypto::ring::sign::any_ecdsa_type(&der);
+    #[cfg(feature = "aws-lc-rs")]
+    return futures_rustls::rustls::crypto::aws_lc_rs::sign::any_ecdsa_type(&der);
+}
+
+#[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
+pub(crate) fn crypto_provider() -> futures_rustls::rustls::crypto::CryptoProvider {
+    #[cfg(all(feature = "ring", not(feature = "aws-lc-rs")))]
+    return futures_rustls::rustls::crypto::ring::default_provider();
+    #[cfg(feature = "aws-lc-rs")]
+    return futures_rustls::rustls::crypto::aws_lc_rs::default_provider();
+}
