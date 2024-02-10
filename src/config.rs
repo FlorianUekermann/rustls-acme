@@ -1,10 +1,11 @@
 use crate::acme::{LETS_ENCRYPT_PRODUCTION_DIRECTORY, LETS_ENCRYPT_STAGING_DIRECTORY};
 use crate::caches::{BoxedErrCache, CompositeCache, NoCache};
-use crate::{AccountCache, Cache, CertCache};
+use crate::{crypto_provider, AccountCache, Cache, CertCache};
 use crate::{AcmeState, Incoming};
 use core::fmt;
 use futures::{AsyncRead, AsyncWrite, Stream};
 use futures_rustls::pki_types::TrustAnchor;
+use futures_rustls::rustls::crypto::CryptoProvider;
 use futures_rustls::rustls::{ClientConfig, RootCertStore};
 use std::convert::Infallible;
 use std::fmt::Debug;
@@ -48,8 +49,13 @@ impl AcmeConfig<Infallible, Infallible> {
     /// # type EA = EC;
     /// let config: AcmeConfig<EC, EA> = AcmeConfig::new(["example.com"]).cache(NoCache::new());
     /// ```
-    ///
+    #[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
     pub fn new(domains: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
+        Self::new_with_provider(domains, crypto_provider().into())
+    }
+
+    /// Same as [AcmeConfig::new], with a specific [CryptoProvider].
+    pub fn new_with_provider(domains: impl IntoIterator<Item = impl AsRef<str>>, provider: Arc<CryptoProvider>) -> Self {
         let mut root_store = RootCertStore::empty();
         root_store.extend(TLS_SERVER_ROOTS.iter().map(|ta| {
             let ta = ta.to_owned();
@@ -59,7 +65,13 @@ impl AcmeConfig<Infallible, Infallible> {
                 name_constraints: ta.name_constraints.map(Into::into),
             }
         }));
-        let client_config = Arc::new(ClientConfig::builder().with_root_certificates(root_store).with_no_client_auth());
+        let client_config = Arc::new(
+            ClientConfig::builder_with_provider(provider)
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_root_certificates(root_store)
+                .with_no_client_auth(),
+        );
         AcmeConfig {
             client_config,
             directory_url: LETS_ENCRYPT_STAGING_DIRECTORY.into(),
