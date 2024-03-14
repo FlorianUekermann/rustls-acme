@@ -2,7 +2,6 @@ use crate::acceptor::AcmeAcceptor;
 use crate::acme::{Account, AcmeError, Auth, AuthStatus, Directory, Identifier, Order, OrderStatus, ACME_TLS_ALPN_NAME};
 use crate::{any_ecdsa_type, crypto_provider, AcmeConfig, Incoming, ResolvesServerCertAcme};
 use async_io::Timer;
-use chrono::{DateTime, TimeZone, Utc};
 use core::fmt;
 use futures::future::try_join_all;
 use futures::prelude::*;
@@ -20,6 +19,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use thiserror::Error;
+use time::OffsetDateTime;
 use x509_parser::parse_x509_certificate;
 
 pub struct AcmeState<EC: Debug = Infallible, EA: Debug = EC> {
@@ -190,7 +190,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             wait: None,
         }
     }
-    fn parse_cert(pem: &[u8]) -> Result<(CertifiedKey, [DateTime<Utc>; 2]), CertParseError> {
+    fn parse_cert(pem: &[u8]) -> Result<(CertifiedKey, [OffsetDateTime; 2]), CertParseError> {
         let mut pems = pem::parse_many(&pem)?;
         if pems.len() < 2 {
             return Err(CertParseError::TooFewPem(pems.len()));
@@ -203,7 +203,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         let validity = match parse_x509_certificate(&cert_chain[0]) {
             Ok((_, cert)) => {
                 let validity = cert.validity();
-                [validity.not_before, validity.not_after].map(|t| Utc.timestamp_opt(t.timestamp(), 0).earliest().unwrap())
+                [validity.not_before, validity.not_after].map(|t| t.to_datetime())
             }
             Err(err) => return Err(CertParseError::X509(err)),
         };
@@ -221,10 +221,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             }
         };
         self.resolver.set_cert(Arc::new(cert));
-        let wait_duration = (validity[1] - (validity[1] - validity[0]) / 3 - Utc::now())
-            .max(chrono::Duration::zero())
-            .to_std()
-            .unwrap_or_default();
+        let wait_duration = (validity[1] - (validity[1] - validity[0]) / 3i32 - OffsetDateTime::now_utc()).unsigned_abs();
         self.wait = Some(Timer::after(wait_duration));
         if cached {
             return Ok(EventOk::DeployedCachedCert);
