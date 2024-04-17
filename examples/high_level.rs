@@ -19,7 +19,7 @@ struct Args {
     email: Vec<String>,
 
     /// Cache directory
-    #[clap(short, parse(from_os_str))]
+    #[clap(short, value_parser)]
     cache: Option<PathBuf>,
 
     /// Use Let's Encrypt production environment
