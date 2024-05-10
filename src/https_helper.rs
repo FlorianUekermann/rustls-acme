@@ -1,4 +1,4 @@
-use async_web_client::RequestSend;
+use async_web_client::prelude::*;
 use futures::AsyncReadExt;
 use futures_rustls::pki_types::InvalidDnsNameError;
 use futures_rustls::rustls::ClientConfig;
@@ -21,7 +21,7 @@ pub(crate) async fn https(
         request.body("".to_string())
     };
     let request = request?;
-    let mut response = RequestSend::new_with_client_config(&request, client_config.clone()).await?;
+    let mut response = request.send_with_client_config(client_config.clone()).await?;
     let mut body = String::new();
     response.body_mut().read_to_string(&mut body).await?;
     let response = response.map(|_| body);
