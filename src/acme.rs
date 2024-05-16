@@ -7,11 +7,11 @@ use crate::crypto::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm, ECDSA_P256_S
 use crate::https_helper::{https, HttpsRequestError};
 use crate::jose::{key_authorization_sha256, sign, JoseError};
 use base64::prelude::*;
-use futures_rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use futures_rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
 use futures_rustls::rustls::{sign::CertifiedKey, ClientConfig};
 use http::header::ToStrError;
 use http::{Method, Response};
-use rcgen::{Certificate, CustomExtension, PKCS_ECDSA_P256_SHA256};
+use rcgen::{CustomExtension, KeyPair, PKCS_ECDSA_P256_SHA256};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use thiserror::Error;
@@ -106,7 +106,7 @@ impl Account {
         let response = self.request(client_config, &url, "").await?;
         Ok(serde_json::from_str(&response.1)?)
     }
-    pub async fn finalize(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>, csr: Vec<u8>) -> Result<Order, AcmeError> {
+    pub async fn finalize(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>, csr: &[u8]) -> Result<Order, AcmeError> {
         let payload = format!("{{\"csr\":\"{}\"}}", BASE64_URL_SAFE_NO_PAD.encode(csr));
         let response = self.request(client_config, &url, &payload).await?;
         Ok(serde_json::from_str(&response.1)?)
@@ -120,13 +120,14 @@ impl Account {
             Some(challenge) => challenge,
             None => return Err(AcmeError::NoTlsAlpn01Challenge),
         };
-        let mut params = rcgen::CertificateParams::new(vec![domain]);
+        let mut params = rcgen::CertificateParams::new(vec![domain])?;
         let key_auth = key_authorization_sha256(&self.key_pair, &*challenge.token)?;
-        params.alg = &PKCS_ECDSA_P256_SHA256;
         params.custom_extensions = vec![CustomExtension::new_acme_identifier(key_auth.as_ref())];
-        let cert = Certificate::from_params(params)?;
-        let pk = any_ecdsa_type(&PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(cert.serialize_private_key_der()))).unwrap();
-        let certified_key = CertifiedKey::new(vec![CertificateDer::from(cert.serialize_der()?)], pk);
+        let key_pair = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256)?;
+        let cert = params.self_signed(&key_pair)?;
+
+        let sk = any_ecdsa_type(&PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_pair.serialize_der()))).unwrap();
+        let certified_key = CertifiedKey::new(vec![cert.der().clone()], sk);
         Ok((challenge, certified_key))
     }
 }

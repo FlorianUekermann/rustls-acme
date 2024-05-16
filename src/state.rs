@@ -11,7 +11,7 @@ use futures_rustls::pki_types::{CertificateDer as RustlsCertificate, PrivateKeyD
 use futures_rustls::rustls::crypto::CryptoProvider;
 use futures_rustls::rustls::sign::CertifiedKey;
 use futures_rustls::rustls::ServerConfig;
-use rcgen::{CertificateParams, DistinguishedName, PKCS_ECDSA_P256_SHA256};
+use rcgen::{CertificateParams, DistinguishedName, KeyPair, PKCS_ECDSA_P256_SHA256};
 use std::convert::Infallible;
 use std::fmt::Debug;
 use std::future::Future;
@@ -242,10 +242,10 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         let directory = Directory::discover(&config.client_config, &config.directory_url).await?;
         let account = Account::create_with_keypair(&config.client_config, directory, &config.contact, &key_pair).await?;
 
-        let mut params = CertificateParams::new(config.domains.clone());
+        let mut params = CertificateParams::new(config.domains.clone())?;
         params.distinguished_name = DistinguishedName::new();
-        params.alg = &PKCS_ECDSA_P256_SHA256;
-        let cert = rcgen::Certificate::from_params(params)?;
+        let key_pair = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256)?;
+        let csr = params.serialize_request(&key_pair)?;
 
         let (order_url, mut order) = account.new_order(&config.client_config, config.domains.clone()).await?;
         loop {
@@ -271,13 +271,12 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                 }
                 OrderStatus::Ready => {
                     log::info!("sending csr");
-                    let csr = cert.serialize_request_der()?;
-                    order = account.finalize(&config.client_config, order.finalize, csr).await?
+                    order = account.finalize(&config.client_config, order.finalize, csr.der()).await?
                 }
                 OrderStatus::Valid { certificate } => {
                     log::info!("download certificate");
                     let pem = [
-                        &cert.serialize_private_key_pem(),
+                        &key_pair.serialize_pem(),
                         "\n",
                         &account.certificate(&config.client_config, certificate).await?,
                     ]

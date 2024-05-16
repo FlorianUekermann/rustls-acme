@@ -1,6 +1,6 @@
 use crate::{AccountCache, CertCache};
 use async_trait::async_trait;
-use rcgen::{date_time_ymd, BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyUsagePurpose, PKCS_ECDSA_P256_SHA256};
+use rcgen::{date_time_ymd, BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, KeyUsagePurpose, PKCS_ECDSA_P256_SHA256};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::atomic::AtomicPtr;
@@ -19,6 +19,7 @@ use std::sync::Arc;
 /// ```
 #[derive(Clone)]
 pub struct TestCache<EC: Debug = std::io::Error, EA: Debug = std::io::Error> {
+    ca_key: Arc<KeyPair>,
     ca_cert: Arc<rcgen::Certificate>,
     ca_pem: Arc<String>,
     _cert_error: PhantomData<AtomicPtr<Box<EC>>>,
@@ -33,15 +34,15 @@ impl<EC: Debug, EA: Debug> TestCache<EC, EA> {
         distinguished_name.push(DnType::OrganizationName, "Test CA");
         distinguished_name.push(DnType::CommonName, "Test CA");
         params.distinguished_name = distinguished_name;
-        params.alg = &PKCS_ECDSA_P256_SHA256;
         params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
         params.not_before = date_time_ymd(2000, 1, 1);
         params.not_after = date_time_ymd(3000, 1, 1);
-
-        let ca_cert = rcgen::Certificate::from_params(params).unwrap();
-        let ca_pem = ca_cert.serialize_pem().unwrap();
+        let key_pair = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).unwrap();
+        let ca_cert = params.self_signed(&key_pair).unwrap();
+        let ca_pem = ca_cert.pem();
         Self {
+            ca_key: key_pair.into(),
             ca_cert: ca_cert.into(),
             ca_pem: ca_pem.into(),
             _cert_error: Default::default(),
@@ -57,30 +58,17 @@ impl<EC: Debug, EA: Debug> TestCache<EC, EA> {
 impl<EC: Debug, EA: Debug> CertCache for TestCache<EC, EA> {
     type EC = EC;
     async fn load_cert(&self, domains: &[String], _directory_url: &str) -> Result<Option<Vec<u8>>, Self::EC> {
-        let mut params = CertificateParams::new(domains);
+        let mut params = CertificateParams::new(domains).unwrap();
         let mut distinguished_name = DistinguishedName::new();
         distinguished_name.push(DnType::CommonName, "Test Cert");
         params.distinguished_name = distinguished_name;
-        params.alg = &PKCS_ECDSA_P256_SHA256;
         params.not_before = date_time_ymd(2000, 1, 1);
         params.not_after = date_time_ymd(3000, 1, 1);
-        let cert = match rcgen::Certificate::from_params(params) {
-            Ok(cert) => cert,
-            Err(err) => {
-                log::error!("test cache: generation error: {:?}", err);
-                return Ok(None);
-            }
-        };
-        let cert_pem = match cert.serialize_pem_with_signer(&self.ca_cert) {
-            Ok(pem) => pem,
-            Err(err) => {
-                log::error!("test cache: signing error: {:?}", err);
-                return Ok(None);
-            }
-        };
-
-        let pem = [&cert.serialize_private_key_pem(), "\n", &cert_pem, "\n", &self.ca_pem].concat();
-        Ok(Some(pem.into_bytes()))
+        let key_pair = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).unwrap();
+        let cert = params.signed_by(&key_pair, &self.ca_cert, &self.ca_key).unwrap();
+        let private_key_pem = key_pair.serialize_pem();
+        let signed_cert_pem = cert.pem();
+        Ok(Some([&private_key_pem, "\n", &signed_cert_pem, "\n", &self.ca_pem].concat().into_bytes()))
     }
     async fn store_cert(&self, _domains: &[String], _directory_url: &str, _cert: &[u8]) -> Result<(), Self::EC> {
         log::info!("test cache configured, could not store certificate");
