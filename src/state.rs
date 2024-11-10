@@ -22,6 +22,7 @@ use std::time::Duration;
 use thiserror::Error;
 use x509_parser::parse_x509_certificate;
 
+#[allow(clippy::type_complexity)]
 pub struct AcmeState<EC: Debug = Infallible, EA: Debug = EC> {
     config: Arc<AcmeConfig<EC, EA>>,
     resolver: Arc<ResolvesServerCertAcme>,
@@ -152,7 +153,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             .with_no_client_auth()
             .with_cert_resolver(self.resolver());
         rustls_config.alpn_protocols.push(ACME_TLS_ALPN_NAME.to_vec());
-        return Arc::new(rustls_config);
+        Arc::new(rustls_config)
     }
     /// Creates a default [rustls::ServerConfig] for accepting regular tls connections. Use this if [crate::is_tls_alpn_challenge] returns `false`.
     /// If you need a [rustls::ServerConfig], which uses the certificates acquired by this [AcmeState],
@@ -168,7 +169,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             .unwrap()
             .with_no_client_auth()
             .with_cert_resolver(self.resolver());
-        return Arc::new(rustls_config);
+        Arc::new(rustls_config)
     }
     pub fn new(config: AcmeConfig<EC, EA>) -> Self {
         let config = Arc::new(config);
@@ -191,7 +192,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         }
     }
     fn parse_cert(pem: &[u8]) -> Result<(CertifiedKey, [DateTime<Utc>; 2]), CertParseError> {
-        let mut pems = pem::parse_many(&pem)?;
+        let mut pems = pem::parse_many(pem)?;
         if pems.len() < 2 {
             return Err(CertParseError::TooFewPem(pems.len()));
         }
@@ -210,6 +211,8 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         let cert = CertifiedKey::new(cert_chain, pk);
         Ok((cert, validity))
     }
+
+    #[allow(clippy::result_large_err)]
     fn process_cert(&mut self, pem: Vec<u8>, cached: bool) -> Event<EC, EA> {
         let (cert, validity) = match (Self::parse_cert(&pem), cached) {
             (Ok(r), _) => r,

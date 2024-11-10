@@ -10,7 +10,7 @@ use std::sync::atomic::AtomicPtr;
 /// # use rustls_acme::caches::NoCache;
 /// # type EC = std::io::Error;
 /// # type EA = EC;
-/// let no_cache = NoCache::<EC, EA>::new();
+/// let no_cache = NoCache::<EC, EA>::default();
 /// ```
 #[derive(Copy, Clone)]
 pub struct NoCache<EC: Debug = Infallible, EA: Debug = Infallible> {
@@ -18,8 +18,8 @@ pub struct NoCache<EC: Debug = Infallible, EA: Debug = Infallible> {
     _account_error: PhantomData<AtomicPtr<Box<EA>>>,
 }
 
-impl<EC: Debug, EA: Debug> NoCache<EC, EA> {
-    pub fn new() -> Self {
+impl<EC: Debug, EA: Debug> Default for NoCache<EC, EA> {
+    fn default() -> Self {
         Self {
             _cert_error: Default::default(),
             _account_error: Default::default(),

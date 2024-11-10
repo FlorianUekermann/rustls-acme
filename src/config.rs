@@ -47,7 +47,7 @@ impl AcmeConfig<Infallible, Infallible> {
     /// use rustls_acme::caches::NoCache;
     /// # type EC = std::io::Error;
     /// # type EA = EC;
-    /// let config: AcmeConfig<EC, EA> = AcmeConfig::new(["example.com"]).cache(NoCache::new());
+    /// let config: AcmeConfig<EC, EA> = AcmeConfig::new(["example.com"]).cache(NoCache::default());
     /// ```
     #[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
     pub fn new(domains: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
@@ -60,9 +60,9 @@ impl AcmeConfig<Infallible, Infallible> {
         root_store.extend(TLS_SERVER_ROOTS.iter().map(|ta| {
             let ta = ta.to_owned();
             TrustAnchor {
-                subject: ta.subject.into(),
-                subject_public_key_info: ta.subject_public_key_info.into(),
-                name_constraints: ta.name_constraints.map(Into::into),
+                subject: ta.subject,
+                subject_public_key_info: ta.subject_public_key_info,
+                name_constraints: ta.name_constraints,
             }
         }));
         let client_config = Arc::new(
@@ -77,7 +77,7 @@ impl AcmeConfig<Infallible, Infallible> {
             directory_url: LETS_ENCRYPT_STAGING_DIRECTORY.into(),
             domains: domains.into_iter().map(|s| s.as_ref().into()).collect(),
             contact: vec![],
-            cache: Box::new(NoCache::new()),
+            cache: Box::new(NoCache::default()),
         }
     }
 }
@@ -143,7 +143,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
     pub fn cache_option<C: 'static + Cache>(self, cache: Option<C>) -> AcmeConfig<C::EC, C::EA> {
         match cache {
             Some(cache) => self.cache(cache),
-            None => self.cache(NoCache::<C::EC, C::EA>::new()),
+            None => self.cache(NoCache::<C::EC, C::EA>::default()),
         }
     }
     pub fn state(self) -> AcmeState<EC, EA> {

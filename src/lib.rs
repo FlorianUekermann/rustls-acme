@@ -105,7 +105,7 @@
 //!
 //! Thanks to [Josh Triplett](https://github.com/joshtriplett) for contributions and feedback.
 
-#![cfg_attr(doc_auto_cfg, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
 mod acceptor;
 pub mod acme;
@@ -147,9 +147,9 @@ pub(crate) fn any_ecdsa_type(
     der: &futures_rustls::pki_types::PrivateKeyDer,
 ) -> Result<std::sync::Arc<dyn futures_rustls::rustls::sign::SigningKey>, futures_rustls::rustls::Error> {
     #[cfg(all(feature = "ring", not(feature = "aws-lc-rs")))]
-    return futures_rustls::rustls::crypto::ring::sign::any_ecdsa_type(&der);
+    return futures_rustls::rustls::crypto::ring::sign::any_ecdsa_type(der);
     #[cfg(feature = "aws-lc-rs")]
-    return futures_rustls::rustls::crypto::aws_lc_rs::sign::any_ecdsa_type(&der);
+    return futures_rustls::rustls::crypto::aws_lc_rs::sign::any_ecdsa_type(der);
 }
 
 #[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
