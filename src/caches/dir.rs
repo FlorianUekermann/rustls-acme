@@ -20,7 +20,7 @@ impl<P: AsRef<Path> + Send + Sync> DirCache<P> {
             Ok(content) => Ok(Some(content)),
             Err(err) => match err.kind() {
                 ErrorKind::NotFound => Ok(None),
-                _ => Err(err.into()),
+                _ => Err(err),
             },
         }
     }
@@ -57,11 +57,11 @@ impl<P: AsRef<Path> + Send + Sync> DirCache<P> {
 impl<P: AsRef<Path> + Send + Sync> CertCache for DirCache<P> {
     type EC = std::io::Error;
     async fn load_cert(&self, domains: &[String], directory_url: &str) -> Result<Option<Vec<u8>>, Self::EC> {
-        let file_name = Self::cached_cert_file_name(&domains, directory_url);
+        let file_name = Self::cached_cert_file_name(domains, directory_url);
         self.read_if_exist(file_name).await
     }
     async fn store_cert(&self, domains: &[String], directory_url: &str, cert: &[u8]) -> Result<(), Self::EC> {
-        let file_name = Self::cached_cert_file_name(&domains, directory_url);
+        let file_name = Self::cached_cert_file_name(domains, directory_url);
         self.write(file_name, cert).await
     }
 }
@@ -70,12 +70,12 @@ impl<P: AsRef<Path> + Send + Sync> CertCache for DirCache<P> {
 impl<P: AsRef<Path> + Send + Sync> AccountCache for DirCache<P> {
     type EA = std::io::Error;
     async fn load_account(&self, contact: &[String], directory_url: &str) -> Result<Option<Vec<u8>>, Self::EA> {
-        let file_name = Self::cached_account_file_name(&contact, directory_url);
+        let file_name = Self::cached_account_file_name(contact, directory_url);
         self.read_if_exist(file_name).await
     }
 
     async fn store_account(&self, contact: &[String], directory_url: &str, account: &[u8]) -> Result<(), Self::EA> {
-        let file_name = Self::cached_account_file_name(&contact, directory_url);
+        let file_name = Self::cached_account_file_name(contact, directory_url);
         self.write(file_name, account).await
     }
 }
