@@ -292,7 +292,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
     }
     async fn authorize(config: &AcmeConfig<EC, EA>, resolver: &ResolvesServerCertAcme, account: &Account, url: &String) -> Result<(), OrderError> {
         let auth = account.auth(&config.client_config, url).await?;
-        let (domain, challenge_url) = match auth.status {
+        let (domain, challenge_url, token) = match auth.status {
             AuthStatus::Pending => {
                 let Identifier::Dns(domain) = auth.identifier;
                 log::info!("trigger challenge for {}", &domain);
@@ -309,10 +309,18 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                     }
                 };
                 account.challenge(&config.client_config, &challenge.url).await?;
-                (domain, challenge.url.clone())
+                (domain, challenge.url.clone(), challenge.token.clone())
             }
-            AuthStatus::Valid => return Ok(()),
-            _ => return Err(OrderError::BadAuth(auth)),
+            AuthStatus::Valid => {
+                //clear all tokens from challenges when auth is valid
+                auth.challenges.iter().map(|c| &c.token).for_each(|t| resolver.clear_key_auth(t));
+                return Ok(());
+            }
+            _ => {
+                // clear all tokens from challenges when auth is invalid
+                auth.challenges.iter().map(|c| &c.token).for_each(|t| resolver.clear_key_auth(t));
+                return Err(OrderError::BadAuth(auth))
+            },
         };
         for i in 0u64..5 {
             Timer::after(Duration::from_secs(1u64 << i)).await;
@@ -322,8 +330,16 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                     log::info!("authorization for {} still pending", &domain);
                     account.challenge(&config.client_config, &challenge_url).await?
                 }
-                AuthStatus::Valid => return Ok(()),
-                _ => return Err(OrderError::BadAuth(auth)),
+                AuthStatus::Valid => {
+                    // clear token from chosen challenge when auth validated
+                    resolver.clear_key_auth(&token);
+                    return Ok(())
+                },
+                _ => {
+                    // clear token from chosen challenge when auth invalidated
+                    resolver.clear_key_auth(&token);
+                    return Err(OrderError::BadAuth(auth))
+                },
             }
         }
         Err(OrderError::TooManyAttemptsAuth(domain))
