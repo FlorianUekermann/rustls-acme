@@ -33,6 +33,7 @@ axum-server = { version = "0.7", features = ["tls-rustls-no-provider"], optional
 async-web-client = { version = "0.6.2", default-features = false }
 http = "1"
 blocking = "1.4.1"
+fastcache = "0.1.7"
 
 [dev-dependencies]
 simple_logger = "4.3.3"

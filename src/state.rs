@@ -1,6 +1,6 @@
 use crate::acceptor::AcmeAcceptor;
 use crate::acme::{Account, AcmeError, Auth, AuthStatus, Directory, Identifier, Order, OrderStatus, ACME_TLS_ALPN_NAME};
-use crate::{any_ecdsa_type, crypto_provider, AcmeConfig, Incoming, ResolvesServerCertAcme};
+use crate::{any_ecdsa_type, crypto_provider, AcmeConfig, Incoming, ResolvesServerCertAcme, UseChallenge};
 use async_io::Timer;
 use chrono::{DateTime, TimeZone, Utc};
 use core::fmt;
@@ -296,8 +296,18 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             AuthStatus::Pending => {
                 let Identifier::Dns(domain) = auth.identifier;
                 log::info!("trigger challenge for {}", &domain);
-                let (challenge, auth_key) = account.tls_alpn_01(&auth.challenges, domain.clone())?;
-                resolver.set_auth_key(domain.clone(), Arc::new(auth_key));
+                let challenge = match config.challenge_type {
+                    UseChallenge::Http01 => {
+                        let (challenge, key_auth) = account.http_01(&auth.challenges)?;
+                        resolver.set_key_auth(challenge.token.clone(), Arc::new(Vec::from(key_auth.as_ref())));
+                        challenge
+                    }
+                    UseChallenge::TlsAlpn01 => {
+                        let (challenge, auth_key) = account.tls_alpn_01(&auth.challenges, domain.clone())?;
+                        resolver.set_auth_key(domain.clone(), Arc::new(auth_key));
+                        challenge
+                    }
+                };
                 account.challenge(&config.client_config, &challenge.url).await?;
                 (domain, challenge.url.clone())
             }

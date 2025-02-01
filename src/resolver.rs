@@ -1,11 +1,13 @@
+use fastcache::Cache;
 use futures_rustls::rustls::{
     server::{ClientHello, ResolvesServerCert},
     sign::CertifiedKey,
 };
 use std::collections::BTreeMap;
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use std::sync::Mutex;
-
+use std::time::Duration;
 use crate::is_tls_alpn_challenge;
 
 #[derive(Debug)]
@@ -13,10 +15,21 @@ pub struct ResolvesServerCertAcme {
     inner: Mutex<Inner>,
 }
 
-#[derive(Debug)]
 struct Inner {
     cert: Option<Arc<CertifiedKey>>,
     auth_keys: BTreeMap<String, Arc<CertifiedKey>>,
+    key_auths: Cache<String, Arc<Vec<u8>>>,
+}
+
+impl Debug for Inner {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter) -> ::core::fmt::Result {
+        f.debug_struct("Inner")
+            .field("cert", &self.cert)
+            .field("auth_keys", &self.auth_keys)
+            //ignore non printable fashcache
+            .finish()
+    }
 }
 
 impl ResolvesServerCertAcme {
@@ -25,6 +38,8 @@ impl ResolvesServerCertAcme {
             inner: Mutex::new(Inner {
                 cert: None,
                 auth_keys: Default::default(),
+                // Reasonably high key auth cache defaults. Avoid Infinite accumulation
+                key_auths: Cache::new(500, Duration::from_secs(3600)),
             }),
         })
     }
@@ -33,6 +48,17 @@ impl ResolvesServerCertAcme {
     }
     pub(crate) fn set_auth_key(&self, domain: String, cert: Arc<CertifiedKey>) {
         self.inner.lock().unwrap().auth_keys.insert(domain, cert);
+    }
+    pub(crate) fn set_key_auth(&self, token: String, key_auth: Arc<Vec<u8>>) {
+        self.inner.lock().unwrap().key_auths.insert(token, key_auth);
+    }
+    pub fn get_key_auth(&self, token: &String) -> Option<Arc<Vec<u8>>> {
+        match self.inner.lock().unwrap().key_auths.get(token) {
+            None => None,
+            Some(key_auth) => {
+                Some(key_auth.get().clone())
+            }
+        }
     }
 }
 
