@@ -1,11 +1,10 @@
-use std::sync::Arc;
-use aws_lc_rs::digest::Digest;
 use crate::any_ecdsa_type;
 use crate::crypto::error::{KeyRejected, Unspecified};
 use crate::crypto::rand::SystemRandom;
 use crate::crypto::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm, ECDSA_P256_SHA256_FIXED_SIGNING};
 use crate::https_helper::{https, HttpsRequestError};
 use crate::jose::{key_authorization_sha256, sign, JoseError};
+use aws_lc_rs::digest::Digest;
 use base64::prelude::*;
 use futures_rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
 use futures_rustls::rustls::{sign::CertifiedKey, ClientConfig};
@@ -14,6 +13,7 @@ use http::{Method, Response};
 use rcgen::{CustomExtension, KeyPair, PKCS_ECDSA_P256_SHA256};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::sync::Arc;
 use thiserror::Error;
 
 pub const LETS_ENCRYPT_STAGING_DIRECTORY: &str = "https://acme-staging-v02.api.letsencrypt.org/directory";

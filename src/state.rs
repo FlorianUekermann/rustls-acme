@@ -4,7 +4,6 @@ use crate::{any_ecdsa_type, crypto_provider, AcmeConfig, Incoming, ResolvesServe
 use async_io::Timer;
 use chrono::{DateTime, TimeZone, Utc};
 use core::fmt;
-use futures::future::try_join_all;
 use futures::prelude::*;
 use futures::ready;
 use futures_rustls::pki_types::{CertificateDer as RustlsCertificate, PrivateKeyDer, PrivatePkcs8KeyDer};
@@ -254,8 +253,10 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         loop {
             match order.status {
                 OrderStatus::Pending => {
-                    let auth_futures = order.authorizations.iter().map(|url| Self::authorize(&config, &resolver, &account, url));
-                    try_join_all(auth_futures).await?;
+                    // Force in order authorizations to allow single global challenge data state
+                    for url in order.authorizations.iter() {
+                        Self::authorize(&config, &resolver, &account, url).await?
+                    }
                     log::info!("completed all authorizations");
                     order = account.order(&config.client_config, &order_url).await?;
                 }
@@ -292,35 +293,35 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
     }
     async fn authorize(config: &AcmeConfig<EC, EA>, resolver: &ResolvesServerCertAcme, account: &Account, url: &String) -> Result<(), OrderError> {
         let auth = account.auth(&config.client_config, url).await?;
-        let (domain, challenge_url, token) = match auth.status {
+        let (domain, challenge_url) = match auth.status {
             AuthStatus::Pending => {
                 let Identifier::Dns(domain) = auth.identifier;
                 log::info!("trigger challenge for {}", &domain);
                 let challenge = match config.challenge_type {
                     UseChallenge::Http01 => {
                         let (challenge, key_auth) = account.http_01(&auth.challenges)?;
-                        resolver.set_key_auth(challenge.token.clone(), Arc::new(Vec::from(key_auth.as_ref())));
+                        resolver.set_http_01_challenge_data(challenge.token.clone(), Arc::new(Vec::from(key_auth.as_ref())));
                         challenge
                     }
                     UseChallenge::TlsAlpn01 => {
                         let (challenge, auth_key) = account.tls_alpn_01(&auth.challenges, domain.clone())?;
-                        resolver.set_auth_key(domain.clone(), Arc::new(auth_key));
+                        resolver.set_tls_alpn_01_challenge_data(domain.clone(), Arc::new(auth_key));
                         challenge
                     }
                 };
                 account.challenge(&config.client_config, &challenge.url).await?;
-                (domain, challenge.url.clone(), challenge.token.clone())
+                (domain, challenge.url.clone())
             }
             AuthStatus::Valid => {
-                //clear all tokens from challenges when auth is valid
-                auth.challenges.iter().map(|c| &c.token).for_each(|t| resolver.clear_key_auth(t));
+                // clear challenge data when auth validated
+                resolver.clear_challenge_data();
                 return Ok(());
             }
             _ => {
-                // clear all tokens from challenges when auth is invalid
-                auth.challenges.iter().map(|c| &c.token).for_each(|t| resolver.clear_key_auth(t));
-                return Err(OrderError::BadAuth(auth))
-            },
+                // clear challenge data when auth invalidated
+                resolver.clear_challenge_data();
+                return Err(OrderError::BadAuth(auth));
+            }
         };
         for i in 0u64..5 {
             Timer::after(Duration::from_secs(1u64 << i)).await;
@@ -331,15 +332,15 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                     account.challenge(&config.client_config, &challenge_url).await?
                 }
                 AuthStatus::Valid => {
-                    // clear token from chosen challenge when auth validated
-                    resolver.clear_key_auth(&token);
-                    return Ok(())
-                },
+                    // clear challenge data when auth validated
+                    resolver.clear_challenge_data();
+                    return Ok(());
+                }
                 _ => {
-                    // clear token from chosen challenge when auth invalidated
-                    resolver.clear_key_auth(&token);
-                    return Err(OrderError::BadAuth(auth))
-                },
+                    // clear challenge data when auth invalidated
+                    resolver.clear_challenge_data();
+                    return Err(OrderError::BadAuth(auth));
+                }
             }
         }
         Err(OrderError::TooManyAttemptsAuth(domain))

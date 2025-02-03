@@ -22,10 +22,13 @@ pub struct AcmeConfig<EC: Debug, EA: Debug = EC> {
     pub(crate) domains: Vec<String>,
     pub(crate) contact: Vec<String>,
     pub(crate) cache: Box<dyn Cache<EC = EC, EA = EA>>,
-    pub(crate) challenge_type: UseChallenge
+    pub(crate) challenge_type: UseChallenge,
 }
 
-pub enum UseChallenge { Http01, TlsAlpn01 }
+pub enum UseChallenge {
+    Http01,
+    TlsAlpn01,
+}
 
 impl AcmeConfig<Infallible, Infallible> {
     /// Creates a new [AcmeConfig] instance.
@@ -82,7 +85,7 @@ impl AcmeConfig<Infallible, Infallible> {
             domains: domains.into_iter().map(|s| s.as_ref().into()).collect(),
             contact: vec![],
             cache: Box::new(NoCache::default()),
-            challenge_type: TlsAlpn01
+            challenge_type: TlsAlpn01,
         }
     }
 }
