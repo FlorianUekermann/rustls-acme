@@ -73,22 +73,14 @@ async fn challenge_http_app(http_challenge_app: Router) {
     axum::serve(listener, http_challenge_app.into_make_service()).await.unwrap();
 }
 
-#[debug_handler]
 async fn http01_challenge(State(resolver): State<Arc<ResolvesServerCertAcme>>, Path(challenge_token): Path<String>) -> Response {
     match resolver.get_key_auth(&challenge_token) {
         None => (StatusCode::NOT_FOUND,).into_response(),
-        Some(key_auth) => {
-            if key_auth.is_ascii() {
-                (
-                    StatusCode::OK,
-                    [(header::CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"))],
-                    String::from_utf8(key_auth.as_ref().clone()).unwrap(),
-                )
-                    .into_response()
-            } else {
-                log::debug!("Key_auth is not ascii");
-                (StatusCode::NOT_FOUND,).into_response()
-            }
-        }
+        Some(key_auth) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"))],
+            key_auth,
+        )
+            .into_response(),
     }
 }

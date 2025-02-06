@@ -21,7 +21,7 @@ struct Inner {
 #[derive(Debug)]
 enum ChallengeData {
     TlsAlpn01 { sni: String, cert: Arc<CertifiedKey> },
-    Http01 { token: String, key_auth: Arc<Vec<u8>> },
+    Http01 { token: String, key_auth: String },
 }
 
 impl ResolvesServerCertAcme {
@@ -39,13 +39,13 @@ impl ResolvesServerCertAcme {
     pub(crate) fn set_tls_alpn_01_challenge_data(&self, domain: String, cert: Arc<CertifiedKey>) {
         self.inner.lock().unwrap().challenge_data = Some(ChallengeData::TlsAlpn01 { sni: domain, cert });
     }
-    pub(crate) fn set_http_01_challenge_data(&self, token: String, key_auth: Arc<Vec<u8>>) {
+    pub(crate) fn set_http_01_challenge_data(&self, token: String, key_auth: String) {
         self.inner.lock().unwrap().challenge_data = Some(ChallengeData::Http01 { token, key_auth })
     }
     pub(crate) fn clear_challenge_data(&self) {
         self.inner.lock().unwrap().challenge_data = None;
     }
-    pub fn get_key_auth(&self, challenge_token: &String) -> Option<Arc<Vec<u8>>> {
+    pub fn get_key_auth(&self, challenge_token: &String) -> Option<String> {
         match &self.inner.lock().unwrap().challenge_data {
             Some(ChallengeData::Http01 { token, key_auth }) => {
                 if token.eq(challenge_token) {

@@ -300,7 +300,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                 let challenge = match config.challenge_type {
                     UseChallenge::Http01 => {
                         let (challenge, key_auth) = account.http_01(&auth.challenges)?;
-                        resolver.set_http_01_challenge_data(challenge.token.clone(), Arc::new(Vec::from(key_auth.as_ref())));
+                        resolver.set_http_01_challenge_data(challenge.token.clone(), key_auth);
                         challenge
                     }
                     UseChallenge::TlsAlpn01 => {

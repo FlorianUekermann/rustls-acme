@@ -3,8 +3,7 @@ use crate::crypto::error::{KeyRejected, Unspecified};
 use crate::crypto::rand::SystemRandom;
 use crate::crypto::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm, ECDSA_P256_SHA256_FIXED_SIGNING};
 use crate::https_helper::{https, HttpsRequestError};
-use crate::jose::{key_authorization_sha256, sign, JoseError};
-use aws_lc_rs::digest::Digest;
+use crate::jose::{key_authorization, key_authorization_sha256, sign, JoseError};
 use base64::prelude::*;
 use futures_rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
 use futures_rustls::rustls::{sign::CertifiedKey, ClientConfig};
@@ -130,13 +129,13 @@ impl Account {
         let certified_key = CertifiedKey::new(vec![cert.der().clone()], sk);
         Ok((challenge, certified_key))
     }
-    pub fn http_01<'a>(&self, challenges: &'a [Challenge]) -> Result<(&'a Challenge, Digest), AcmeError> {
+    pub fn http_01<'a>(&self, challenges: &'a [Challenge]) -> Result<(&'a Challenge, String), AcmeError> {
         let challenge = challenges.iter().find(|c| c.typ == ChallengeType::Http01);
         let challenge = match challenge {
             Some(challenge) => challenge,
             None => return Err(AcmeError::NoHttp01Challenge),
         };
-        let key_auth = key_authorization_sha256(&self.key_pair, &challenge.token)?;
+        let key_auth = key_authorization(&self.key_pair, &challenge.token)?;
         Ok((challenge, key_auth))
     }
 }
