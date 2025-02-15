@@ -251,9 +251,9 @@ pub enum AcmeError {
     Crypto(#[from] Unspecified),
     #[error("acme service response is missing {0} header")]
     MissingHeader(&'static str),
-    #[error("no tls-alpn-01 challenge found")]
+    #[error("no TLS-ALPN-01 challenge found")]
     NoTlsAlpn01Challenge,
-    #[error("no http-01 challenge found")]
+    #[error("no HTTP-01 challenge found")]
     NoHttp01Challenge,
 }
 

@@ -145,7 +145,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
     pub fn resolver(&self) -> Arc<ResolvesServerCertAcme> {
         self.resolver.clone()
     }
-    /// Creates a [rustls::ServerConfig] for tls-alpn-01 challenge connections. Use this if [crate::is_tls_alpn_challenge] returns `true`.
+    /// Creates a [rustls::ServerConfig] for TLS-ALPN-01 challenge connections. Use this if [crate::is_tls_alpn_challenge] returns `true`.
     #[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
     pub fn challenge_rustls_config(&self) -> Arc<ServerConfig> {
         self.challenge_rustls_config_with_provider(crypto_provider().into())

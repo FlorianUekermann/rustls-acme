@@ -1,5 +1,5 @@
 //! rustls-acme is an easy-to-use, async compatible ACME client library for rustls.
-//! The validation mechanism used is tls-alpn-01, which allows serving acme challenge responses and
+//! The validation mechanism used is TLS-ALPN-01 OR HTTP-01, which allow serving acme challenge responses and
 //! regular TLS traffic on the same port.
 //!
 //! rustls-acme is designed to be runtime agnostic and as runtime independent as Rust allows at the
@@ -16,6 +16,12 @@
 //! [dependencies]
 //! rustls-acme = "*"
 //! ```
+//!
+//! ## Validation mechanims
+//!
+//! Using TLS-ALPN-01 is used by default and recommended.
+//! However, if the DNS entry points to an HTTP proxy, which terminates TLS, but you still need a certificate,
+//! you may be able to use HTTP-01 instead (see `examples/low_level_axum_http01.rs`).
 //!
 //! ## High-level API
 //!
@@ -103,7 +109,9 @@
 //! [futures-rustls](https://github.com/quininer/futures-rustls),
 //! and many others.
 //!
-//! Thanks to [Josh Triplett](https://github.com/joshtriplett) for contributions and feedback.
+//! Thanks to:
+//! - [Josh Triplett](https://github.com/joshtriplett) for many contributions and feedback.
+//! - [Jack Klamer](https://github.com/jklamer) for contributing HTTP-01 challenge support.
 
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
