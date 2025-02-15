@@ -45,7 +45,7 @@ impl ResolvesServerCertAcme {
     pub(crate) fn clear_challenge_data(&self) {
         self.inner.lock().unwrap().challenge_data = None;
     }
-    pub fn get_key_auth(&self, challenge_token: &String) -> Option<String> {
+    pub fn get_http_01_key_auth(&self, challenge_token: &str) -> Option<String> {
         match &self.inner.lock().unwrap().challenge_data {
             Some(ChallengeData::Http01 { token, key_auth }) => {
                 if token.eq(challenge_token) {

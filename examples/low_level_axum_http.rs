@@ -74,7 +74,7 @@ async fn challenge_http_app(http_challenge_app: Router) {
 }
 
 async fn http01_challenge(State(resolver): State<Arc<ResolvesServerCertAcme>>, Path(challenge_token): Path<String>) -> Response {
-    match resolver.get_key_auth(&challenge_token) {
+    match resolver.get_http_01_key_auth(&challenge_token) {
         None => (StatusCode::NOT_FOUND,).into_response(),
         Some(key_auth) => (
             StatusCode::OK,

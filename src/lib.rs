@@ -122,6 +122,8 @@ mod resolver;
 mod state;
 #[cfg(feature = "tokio")]
 pub mod tokio;
+#[cfg(feature = "tower")]
+pub mod tower;
 
 pub use futures_rustls;
 

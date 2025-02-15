@@ -136,6 +136,12 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         #[allow(deprecated)]
         crate::axum::AxumAcceptor::new(self.acceptor(), rustls_config)
     }
+
+    #[cfg(feature = "tower")]
+    pub fn http01_challenge_tower_service(&self) -> crate::tower::TowerHttp01ChallengeService {
+        crate::tower::TowerHttp01ChallengeService(self.resolver.clone())
+    }
+
     pub fn resolver(&self) -> Arc<ResolvesServerCertAcme> {
         self.resolver.clone()
     }
