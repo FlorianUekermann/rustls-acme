@@ -1,5 +1,6 @@
 use crate::acme::{LETS_ENCRYPT_PRODUCTION_DIRECTORY, LETS_ENCRYPT_STAGING_DIRECTORY};
 use crate::caches::{BoxedErrCache, CompositeCache, NoCache};
+use crate::UseChallenge::TlsAlpn01;
 use crate::{crypto_provider, AccountCache, Cache, CertCache};
 use crate::{AcmeState, Incoming};
 use core::fmt;
@@ -21,6 +22,12 @@ pub struct AcmeConfig<EC: Debug, EA: Debug = EC> {
     pub(crate) domains: Vec<String>,
     pub(crate) contact: Vec<String>,
     pub(crate) cache: Box<dyn Cache<EC = EC, EA = EA>>,
+    pub(crate) challenge_type: UseChallenge,
+}
+
+pub enum UseChallenge {
+    Http01,
+    TlsAlpn01,
 }
 
 impl AcmeConfig<Infallible, Infallible> {
@@ -78,6 +85,7 @@ impl AcmeConfig<Infallible, Infallible> {
             domains: domains.into_iter().map(|s| s.as_ref().into()).collect(),
             contact: vec![],
             cache: Box::new(NoCache::default()),
+            challenge_type: TlsAlpn01,
         }
     }
 }
@@ -132,6 +140,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
             domains: self.domains,
             contact: self.contact,
             cache: Box::new(cache),
+            challenge_type: self.challenge_type,
         }
     }
     pub fn cache_compose<CC: 'static + CertCache, CA: 'static + AccountCache>(self, cert_cache: CC, account_cache: CA) -> AcmeConfig<CC::EC, CA::EA> {
@@ -145,6 +154,10 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
             Some(cache) => self.cache(cache),
             None => self.cache(NoCache::<C::EC, C::EA>::default()),
         }
+    }
+    pub fn challenge_type(mut self, challenge_type: UseChallenge) -> Self {
+        self.challenge_type = challenge_type;
+        self
     }
     pub fn state(self) -> AcmeState<EC, EA> {
         AcmeState::new(self)

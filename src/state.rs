@@ -1,10 +1,9 @@
 use crate::acceptor::AcmeAcceptor;
 use crate::acme::{Account, AcmeError, Auth, AuthStatus, Directory, Identifier, Order, OrderStatus, ACME_TLS_ALPN_NAME};
-use crate::{any_ecdsa_type, crypto_provider, AcmeConfig, Incoming, ResolvesServerCertAcme};
+use crate::{any_ecdsa_type, crypto_provider, AcmeConfig, Incoming, ResolvesServerCertAcme, UseChallenge};
 use async_io::Timer;
 use chrono::{DateTime, TimeZone, Utc};
 use core::fmt;
-use futures::future::try_join_all;
 use futures::prelude::*;
 use futures::ready;
 use futures_rustls::pki_types::{CertificateDer as RustlsCertificate, PrivateKeyDer, PrivatePkcs8KeyDer};
@@ -137,6 +136,12 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         #[allow(deprecated)]
         crate::axum::AxumAcceptor::new(self.acceptor(), rustls_config)
     }
+
+    #[cfg(feature = "tower")]
+    pub fn http01_challenge_tower_service(&self) -> crate::tower::TowerHttp01ChallengeService {
+        crate::tower::TowerHttp01ChallengeService(self.resolver.clone())
+    }
+
     pub fn resolver(&self) -> Arc<ResolvesServerCertAcme> {
         self.resolver.clone()
     }
@@ -254,8 +259,10 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         loop {
             match order.status {
                 OrderStatus::Pending => {
-                    let auth_futures = order.authorizations.iter().map(|url| Self::authorize(&config, &resolver, &account, url));
-                    try_join_all(auth_futures).await?;
+                    // Force in order authorizations to allow single global challenge data state
+                    for url in order.authorizations.iter() {
+                        Self::authorize(&config, &resolver, &account, url).await?
+                    }
                     log::info!("completed all authorizations");
                     order = account.order(&config.client_config, &order_url).await?;
                 }
@@ -296,13 +303,31 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             AuthStatus::Pending => {
                 let Identifier::Dns(domain) = auth.identifier;
                 log::info!("trigger challenge for {}", &domain);
-                let (challenge, auth_key) = account.tls_alpn_01(&auth.challenges, domain.clone())?;
-                resolver.set_auth_key(domain.clone(), Arc::new(auth_key));
+                let challenge = match config.challenge_type {
+                    UseChallenge::Http01 => {
+                        let (challenge, key_auth) = account.http_01(&auth.challenges)?;
+                        resolver.set_http_01_challenge_data(challenge.token.clone(), key_auth);
+                        challenge
+                    }
+                    UseChallenge::TlsAlpn01 => {
+                        let (challenge, auth_key) = account.tls_alpn_01(&auth.challenges, domain.clone())?;
+                        resolver.set_tls_alpn_01_challenge_data(domain.clone(), Arc::new(auth_key));
+                        challenge
+                    }
+                };
                 account.challenge(&config.client_config, &challenge.url).await?;
                 (domain, challenge.url.clone())
             }
-            AuthStatus::Valid => return Ok(()),
-            _ => return Err(OrderError::BadAuth(auth)),
+            AuthStatus::Valid => {
+                // clear challenge data when auth validated
+                resolver.clear_challenge_data();
+                return Ok(());
+            }
+            _ => {
+                // clear challenge data when auth invalidated
+                resolver.clear_challenge_data();
+                return Err(OrderError::BadAuth(auth));
+            }
         };
         for i in 0u64..5 {
             Timer::after(Duration::from_secs(1u64 << i)).await;
@@ -312,8 +337,16 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                     log::info!("authorization for {} still pending", &domain);
                     account.challenge(&config.client_config, &challenge_url).await?
                 }
-                AuthStatus::Valid => return Ok(()),
-                _ => return Err(OrderError::BadAuth(auth)),
+                AuthStatus::Valid => {
+                    // clear challenge data when auth validated
+                    resolver.clear_challenge_data();
+                    return Ok(());
+                }
+                _ => {
+                    // clear challenge data when auth invalidated
+                    resolver.clear_challenge_data();
+                    return Err(OrderError::BadAuth(auth));
+                }
             }
         }
         Err(OrderError::TooManyAttemptsAuth(domain))
