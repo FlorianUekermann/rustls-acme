@@ -48,7 +48,7 @@ impl ResolvesServerCertAcme {
     pub fn get_http_01_key_auth(&self, challenge_token: &str) -> Option<String> {
         match &self.inner.lock().unwrap().challenge_data {
             Some(ChallengeData::Http01 { token, key_auth }) => {
-                if token.eq(challenge_token) {
+                if token == challenge_token {
                     Some(key_auth.clone())
                 } else {
                     None
@@ -68,20 +68,16 @@ impl ResolvesServerCert for ResolvesServerCertAcme {
                     log::debug!("client did not supply SNI");
                     None
                 }
-                Some(domain) => {
-                    let domain = domain.to_owned();
-                    let domain: String = AsRef::<str>::as_ref(&domain).into();
-                    match &self.inner.lock().unwrap().challenge_data {
-                        Some(ChallengeData::TlsAlpn01 { sni, cert }) => {
-                            if domain.eq(sni) {
-                                Some(cert.clone())
-                            } else {
-                                None
-                            }
+                Some(domain) => match &self.inner.lock().unwrap().challenge_data {
+                    Some(ChallengeData::TlsAlpn01 { sni, cert }) => {
+                        if sni == domain {
+                            Some(cert.clone())
+                        } else {
+                            None
                         }
-                        _ => None,
                     }
-                }
+                    _ => None,
+                },
             }
         } else {
             self.inner.lock().unwrap().cert.clone()
