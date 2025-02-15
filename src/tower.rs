@@ -20,7 +20,7 @@ impl<B> tower_service::Service<Request<B>> for TowerHttp01ChallengeService {
         let Some((_, token)) = req.uri().path().rsplit_once('/') else {
             return std::future::ready(Ok(response));
         };
-        let Some(body) = self.0.get_http_01_key_auth(&token) else {
+        let Some(body) = self.0.get_http_01_key_auth(token) else {
             return std::future::ready(Ok(response));
         };
         *response.status_mut() = StatusCode::OK;

@@ -70,7 +70,7 @@ name = "low_level_axum"
 required-features = ["axum"]
 
 [[example]]
-name = "low_level_axum_http"
+name = "low_level_axum_http01"
 required-features = ["axum", "tower"]
 
 [[example]]

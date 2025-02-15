@@ -1,17 +1,14 @@
-use axum::extract::{Path, State};
-use axum::response::{IntoResponse, Response};
+use axum::extract::State;
 use axum::{routing::get, Router};
 use axum_server::bind;
 use clap::Parser;
-use http::{header, HeaderValue, StatusCode};
 use rustls_acme::caches::DirCache;
 use rustls_acme::tower::TowerHttp01ChallengeService;
+use rustls_acme::AcmeConfig;
 use rustls_acme::UseChallenge::Http01;
-use rustls_acme::{AcmeConfig, ResolvesServerCertAcme};
 use std::net::{Ipv6Addr, SocketAddr};
-use std::os::macos::raw::stat;
 use std::path::PathBuf;
-use std::sync::Arc;
+use tokio::try_join;
 use tokio_stream::StreamExt;
 
 #[derive(Parser, Debug)]
@@ -33,8 +30,11 @@ struct Args {
     #[clap(long)]
     prod: bool,
 
-    #[clap(short, long, default_value = "443")]
-    port: u16,
+    #[clap(long, default_value = "443")]
+    https_port: u16,
+
+    #[clap(long, default_value = "80")]
+    http_port: u16,
 }
 
 #[tokio::main]
@@ -49,9 +49,7 @@ async fn main() {
         .challenge_type(Http01)
         .state();
     let acceptor = state.axum_acceptor(state.default_rustls_config());
-    let tower_service: TowerHttp01ChallengeService = state.http01_challenge_tower_service();
-    let http_challenge_app = Router::new().route_service("/.well-known/acme-challenge/{challenge_token}", tower_service);
-    tokio::spawn(challenge_http_app(http_challenge_app));
+    let acme_challenge_tower_service: TowerHttp01ChallengeService = state.http01_challenge_tower_service();
 
     tokio::spawn(async move {
         loop {
@@ -62,12 +60,14 @@ async fn main() {
         }
     });
 
-    let app = Router::new().route("/", get(|| async { "Hello Tls!" }));
-    let addr = SocketAddr::from((Ipv6Addr::UNSPECIFIED, args.port));
-    bind(addr).acceptor(acceptor).serve(app.into_make_service()).await.unwrap();
-}
+    let http_addr = SocketAddr::from((Ipv6Addr::UNSPECIFIED, args.http_port));
+    let https_addr = SocketAddr::from((Ipv6Addr::UNSPECIFIED, args.https_port));
 
-async fn challenge_http_app(http_challenge_app: Router) {
-    let listener = tokio::net::TcpListener::bind((Ipv6Addr::UNSPECIFIED, 80)).await.unwrap();
-    axum::serve(listener, http_challenge_app.into_make_service()).await.unwrap();
+    let app = Router::new()
+        .route("/", get(move |State(t): State<&'static str>| async move { format!("Hello {t}!") }))
+        .route_service("/.well-known/acme-challenge/{challenge_token}", acme_challenge_tower_service);
+
+    let http_future = bind(http_addr).serve(app.clone().with_state("Tcp").into_make_service());
+    let https_future = bind(https_addr).acceptor(acceptor).serve(app.with_state("Tls").into_make_service());
+    try_join!(https_future, http_future).unwrap();
 }
