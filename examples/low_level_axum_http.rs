@@ -1,7 +1,6 @@
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::{routing::get, Router};
-use axum_macros::debug_handler;
 use axum_server::bind;
 use clap::Parser;
 use http::{header, HeaderValue, StatusCode};
