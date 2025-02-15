@@ -6,6 +6,7 @@ use axum_server::bind;
 use clap::Parser;
 use http::{header, HeaderValue, StatusCode};
 use rustls_acme::caches::DirCache;
+use rustls_acme::tower::TowerHttp01ChallengeService;
 use rustls_acme::UseChallenge::Http01;
 use rustls_acme::{AcmeConfig, ResolvesServerCertAcme};
 use std::net::{Ipv6Addr, SocketAddr};
@@ -13,7 +14,6 @@ use std::os::macos::raw::stat;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio_stream::StreamExt;
-use rustls_acme::tower::TowerHttp01ChallengeService;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -50,9 +50,8 @@ async fn main() {
         .challenge_type(Http01)
         .state();
     let acceptor = state.axum_acceptor(state.default_rustls_config());
-    let tower_service : TowerHttp01ChallengeService = state.http01_challenge_tower_service();
-    let http_challenge_app = Router::new()
-        .route_service("/.well-known/acme-challenge/{challenge_token}", tower_service);
+    let tower_service: TowerHttp01ChallengeService = state.http01_challenge_tower_service();
+    let http_challenge_app = Router::new().route_service("/.well-known/acme-challenge/{challenge_token}", tower_service);
     tokio::spawn(challenge_http_app(http_challenge_app));
 
     tokio::spawn(async move {

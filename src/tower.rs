@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use http::{header, HeaderValue, Request, StatusCode};
 use crate::ResolvesServerCertAcme;
+use http::{header, HeaderValue, Request, StatusCode};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct TowerHttp01ChallengeService(pub(crate) Arc<ResolvesServerCertAcme>);
@@ -18,14 +18,16 @@ impl<B> tower_service::Service<Request<B>> for TowerHttp01ChallengeService {
         let mut response = http::Response::new(String::new());
         *response.status_mut() = StatusCode::NOT_FOUND;
         let Some((_, token)) = req.uri().path().rsplit_once('/') else {
-            return std::future::ready(Ok(response))
+            return std::future::ready(Ok(response));
         };
         let Some(body) = self.0.get_http_01_key_auth(&token) else {
-            return std::future::ready(Ok(response))
+            return std::future::ready(Ok(response));
         };
         *response.status_mut() = StatusCode::OK;
         *response.body_mut() = body;
-        response.headers_mut().append(header::CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
+        response
+            .headers_mut()
+            .append(header::CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
         std::future::ready(Ok(response))
     }
 }
