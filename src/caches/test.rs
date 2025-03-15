@@ -68,7 +68,7 @@ impl<EC: Debug, EA: Debug> CertCache for TestCache<EC, EA> {
         params.not_before = date_time_ymd(2000, 1, 1);
         params.not_after = date_time_ymd(3000, 1, 1);
         let key_pair = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).unwrap();
-        let cert = params.signed_by(&key_pair, &self.ca_cert, &self.ca_key).unwrap();
+        let cert = params.signed_by(&key_pair, &*self.ca_cert, &self.ca_key).unwrap();
         let private_key_pem = key_pair.serialize_pem();
         let signed_cert_pem = cert.pem();
         Ok(Some([&private_key_pem, "\n", &signed_cert_pem, "\n", &self.ca_pem].concat().into_bytes()))
