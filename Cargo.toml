@@ -20,7 +20,7 @@ ring = { version = "0.17.7", features = ["std"], optional = true }
 aws-lc-rs = { version = "1.5.2", optional = true, default-features = false, features = ["aws-lc-sys"] }
 base64 = "0.22"
 log = "0.4.17"
-webpki-roots = "0.26"
+webpki-roots = { version = "1", optional = true }
 pem = "3.0.3"
 thiserror = "2"
 x509-parser = "0.16"
@@ -57,13 +57,14 @@ all-features = true
 rustdoc-args = ["--cfg", "doc_auto_cfg"]
 
 [features]
-default = ["aws-lc-rs", "tls12"]
+default = ["aws-lc-rs", "tls12", "webpki-roots"]
 ring = ["dep:ring", "async-web-client/ring", "rcgen/ring"]
 aws-lc-rs = ["dep:aws-lc-rs", "async-web-client/aws-lc-rs", "rcgen/aws_lc_rs"]
 axum = ["dep:axum-server", "tower"]
 tower = ["dep:tower-service", "tokio"]
 tokio = ["dep:tokio", "dep:tokio-util"]
 tls12 = ["async-web-client/tls12"]
+webpki-roots = ["dep:webpki-roots"]
 
 [[example]]
 name = "low_level_axum"

@@ -11,7 +11,6 @@ use futures_rustls::rustls::{ClientConfig, RootCertStore};
 use std::convert::Infallible;
 use std::fmt::Debug;
 use std::sync::Arc;
-use webpki_roots::TLS_SERVER_ROOTS;
 
 /// Configuration for an ACME resolver.
 ///
@@ -31,7 +30,7 @@ pub enum UseChallenge {
 }
 
 impl AcmeConfig<Infallible, Infallible> {
-    /// Creates a new [AcmeConfig] instance.
+    /// Creates a new [AcmeConfig] instance with Web PKI root certificates.
     ///
     /// The new [AcmeConfig] instance will initially have no cache, and its type parameters for
     /// error types will be `Infallible` since the cache cannot return an error. The methods to set
@@ -56,15 +55,16 @@ impl AcmeConfig<Infallible, Infallible> {
     /// # type EA = EC;
     /// let config: AcmeConfig<EC, EA> = AcmeConfig::new(["example.com"]).cache(NoCache::default());
     /// ```
-    #[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
+    #[cfg(all(feature = "webpki-roots", any(feature = "ring", feature = "aws-lc-rs")))]
     pub fn new(domains: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
         Self::new_with_provider(domains, crypto_provider().into())
     }
 
     /// Same as [AcmeConfig::new], with a specific [CryptoProvider].
+    #[cfg(feature = "webpki-roots")]
     pub fn new_with_provider(domains: impl IntoIterator<Item = impl AsRef<str>>, provider: Arc<CryptoProvider>) -> Self {
         let mut root_store = RootCertStore::empty();
-        root_store.extend(TLS_SERVER_ROOTS.iter().map(|ta| {
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
             let ta = ta.to_owned();
             TrustAnchor {
                 subject: ta.subject,
@@ -79,6 +79,60 @@ impl AcmeConfig<Infallible, Infallible> {
                 .with_root_certificates(root_store)
                 .with_no_client_auth(),
         );
+        AcmeConfig {
+            client_config,
+            directory_url: LETS_ENCRYPT_STAGING_DIRECTORY.into(),
+            domains: domains.into_iter().map(|s| s.as_ref().into()).collect(),
+            contact: vec![],
+            cache: Box::new(NoCache::default()),
+            challenge_type: TlsAlpn01,
+        }
+    }
+
+    /// Creates a new [AcmeConfig] instance with the provided TLS configuration client.
+    ///
+    /// The new [AcmeConfig] instance will initially have no cache, and its type parameters for
+    /// error types will be `Infallible` since the cache cannot return an error. The methods to set
+    /// a cache will change the error types to match those returned by the supplied cache.
+    ///
+    /// ```rust
+    /// # use rustls_acme::AcmeConfig;
+    /// use std::sync::Arc;
+    /// use futures_rustls::rustls::ClientConfig;
+    /// use rustls_acme::caches::DirCache;
+    /// # use futures_rustls::rustls::{crypto::CryptoProvider, RootCertStore};
+    /// # fn call(provider: Arc<CryptoProvider>, root_store: RootCertStore) {
+    /// let client_config = Arc::new(
+    ///     ClientConfig::builder_with_provider(provider)
+    ///         .with_safe_default_protocol_versions()
+    ///         .unwrap()
+    ///         .with_root_certificates(root_store)
+    ///         .with_no_client_auth(),
+    /// );
+    /// let config = AcmeConfig::new_with_client_config(["example.com"], client_config)
+    ///     .cache(DirCache::new("./rustls_acme_cache"));
+    /// # }
+    /// ```
+    ///
+    /// Due to limited support for type parameter inference in Rust (see
+    /// [RFC213](https://github.com/rust-lang/rfcs/blob/master/text/0213-defaulted-type-params.md)),
+    /// [AcmeConfig::new_with_client_config] is not (yet) generic over the [AcmeConfig]'s type parameters.
+    /// An uncached instance of [AcmeConfig] with particular type parameters can be created using
+    /// [NoCache].
+    ///
+    /// ```rust
+    /// # use rustls_acme::AcmeConfig;
+    /// # use std::sync::Arc;
+    /// # use futures_rustls::rustls::ClientConfig;
+    /// use rustls_acme::caches::NoCache;
+    /// # type EC = std::io::Error;
+    /// # type EA = EC;
+    /// # fn call(client_config: Arc<ClientConfig>) {
+    /// let config: AcmeConfig<EC, EA> = AcmeConfig::new_with_client_config(["example.com"], client_config)
+    ///     .cache(NoCache::default());
+    /// # }
+    /// ```
+    pub fn new_with_client_config(domains: impl IntoIterator<Item = impl AsRef<str>>, client_config: Arc<ClientConfig>) -> Self {
         AcmeConfig {
             client_config,
             directory_url: LETS_ENCRYPT_STAGING_DIRECTORY.into(),
