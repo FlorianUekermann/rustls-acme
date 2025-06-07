@@ -88,8 +88,8 @@ impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, 
             match Pin::new(&mut self.state).poll_next(cx) {
                 Poll::Ready(Some(event)) => {
                     match event {
-                        Ok(ok) => log::info!("event: {:?}", ok),
-                        Err(err) => log::error!("event: {:?}", err),
+                        Ok(ok) => log::info!("event: {ok:?}"),
+                        Err(err) => log::error!("event: {err:?}"),
                     }
                     continue;
                 }
@@ -103,7 +103,7 @@ impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, 
                     continue;
                 }
                 Poll::Ready(Some(Err(err))) => {
-                    log::error!("tls accept failed, {:?}", err);
+                    log::error!("tls accept failed, {err:?}");
                     continue;
                 }
                 Poll::Ready(None) | Poll::Pending => {}
@@ -111,7 +111,7 @@ impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, 
             match Pin::new(&mut self.tls_accepting).poll_next(cx) {
                 Poll::Ready(Some(Ok(tls))) => return Poll::Ready(Some(Ok(tls))),
                 Poll::Ready(Some(Err(err))) => {
-                    log::error!("tls accept failed, {:?}", err);
+                    log::error!("tls accept failed, {err:?}");
                     continue;
                 }
                 Poll::Ready(None) | Poll::Pending => {}
@@ -126,7 +126,7 @@ impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, 
             match Pin::new(tcp_incoming).poll_next(cx) {
                 Poll::Ready(Some(Ok(tcp))) => self.acme_accepting.push(self.acceptor.accept(tcp)),
                 Poll::Ready(Some(Err(err))) => return Poll::Ready(Some(Err(err))),
-                Poll::Ready(None) => drop(self.tcp_incoming.as_mut().take()),
+                Poll::Ready(None) => drop(self.tcp_incoming.as_mut()),
                 Poll::Pending => return Poll::Pending,
             }
         }
