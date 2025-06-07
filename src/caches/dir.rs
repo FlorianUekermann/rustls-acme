@@ -39,7 +39,7 @@ impl<P: AsRef<Path> + Send + Sync> DirCache<P> {
         }
         ctx.update(directory_url.as_ref().as_bytes());
         let hash = BASE64_URL_SAFE_NO_PAD.encode(ctx.finish());
-        format!("cached_account_{}", hash)
+        format!("cached_account_{hash}")
     }
     fn cached_cert_file_name(domains: &[String], directory_url: impl AsRef<str>) -> String {
         let mut ctx = Context::new(&SHA256);
@@ -49,7 +49,7 @@ impl<P: AsRef<Path> + Send + Sync> DirCache<P> {
         }
         ctx.update(directory_url.as_ref().as_bytes());
         let hash = BASE64_URL_SAFE_NO_PAD.encode(ctx.finish());
-        format!("cached_cert_{}", hash)
+        format!("cached_cert_{hash}")
     }
 }
 

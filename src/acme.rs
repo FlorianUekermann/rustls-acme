@@ -81,7 +81,7 @@ impl Account {
         let response = https(client_config, url.as_ref(), Method::POST, Some(body)).await?;
         let location = get_header(&response, "Location").ok();
         let body = response.into_body();
-        log::debug!("response: {:?}", body);
+        log::debug!("response: {body:?}");
         Ok((location, body))
     }
     pub async fn new_order(&self, client_config: &Arc<ClientConfig>, domains: Vec<String>) -> Result<(String, Order), AcmeError> {
@@ -264,7 +264,7 @@ impl From<http::Error> for AcmeError {
 }
 
 fn get_header(response: &Response<String>, header: &'static str) -> Result<String, AcmeError> {
-    match response.headers().get_all(header).iter().last() {
+    match response.headers().get_all(header).iter().next_back() {
         None => Err(AcmeError::MissingHeader(header)),
         Some(value) => Ok(value.to_str()?.to_string()),
     }

@@ -18,11 +18,24 @@ jobs:
         crypto: ["ring", "aws-lc-rs", "ring,aws-lc-rs"]
         tokio: ["tokio", "axum", "tower", ""]
     steps:
+      - run: |
+          CACHE_KEY=${{ matrix.toolchain }},${{ matrix.crypto }},${{ matrix.tokio }}
+          CACHE_KEY=${CACHE_KEY//,/_}
+          echo CACHE_KEY=${CACHE_KEY} >> ${GITHUB_ENV}
       - uses: actions/checkout@v3
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ env.CACHE_KEY }}
       - run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
       - run: rustup component add clippy
       - run: rustup component add rustfmt
       - run: cargo fmt --check
-      - run: cargo build --verbose --no-default-features --features ${{ matrix.crypto }},${{ matrix.tokio }}
-      - run: cargo test --verbose --no-default-features --features ${{ matrix.crypto }},${{ matrix.tokio }}
-      - run: cargo clippy --tests --no-default-features --features ${{ matrix.crypto }},${{ matrix.tokio }}
+      - run: cargo build --verbose --no-default-features --features webpki-roots,${{ matrix.crypto }},${{ matrix.tokio }}
+      - run: cargo test --verbose --no-default-features --features webpki-roots,${{ matrix.crypto }},${{ matrix.tokio }}
+      - run: cargo clippy --tests --no-default-features --features webpki-roots,${{ matrix.crypto }},${{ matrix.tokio }} -- -D warnings

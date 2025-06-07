@@ -3,7 +3,6 @@ use crate::{AcmeAccept, AcmeAcceptor};
 use futures::prelude::*;
 use futures_rustls::Accept;
 use std::io;
-use std::io::ErrorKind;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -65,7 +64,7 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send + 'static, S: Send + 'static> Futu
                     self.tls_accept = Some(start_handshake.into_stream(config));
                     continue;
                 }
-                Poll::Ready(Ok(None)) => Poll::Ready(Err(io::Error::new(ErrorKind::Other, "TLS-ALPN-01 validation request"))),
+                Poll::Ready(Ok(None)) => Poll::Ready(Err(io::Error::other("TLS-ALPN-01 validation request"))),
                 Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
                 Poll::Pending => Poll::Pending,
             };
