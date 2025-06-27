@@ -34,6 +34,7 @@ async-web-client = { version = "0.6.2", default-features = false }
 http = "1"
 blocking = "1.4.1"
 tower-service = { version = "0.3.3",  optional=true }
+actix-web = { version = "4", features = ["actix-tls", "rustls-0_23"], optional = true}
 
 [dev-dependencies]
 simple_logger = "5.0.0"
@@ -65,6 +66,11 @@ tower = ["dep:tower-service", "tokio"]
 tokio = ["dep:tokio", "dep:tokio-util"]
 tls12 = ["async-web-client/tls12"]
 webpki-roots = ["dep:webpki-roots"]
+actix-web = ["dep:actix-web"]
+
+[[example]]
+name="low_level_actix"
+required-features=["actix-web"]
 
 [[example]]
 name = "low_level_axum"
