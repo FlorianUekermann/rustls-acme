@@ -69,7 +69,6 @@ webpki-roots = ["dep:webpki-roots"]
 
 [[example]]
 name="low_level_actix"
-required-features=[]
 
 [[example]]
 name = "low_level_axum"
