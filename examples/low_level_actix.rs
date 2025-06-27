@@ -1,11 +1,9 @@
+use actix_web::{web, App, HttpResponse, HttpServer};
 use clap::Parser;
 use futures::StreamExt;
 use rustls_acme::caches::DirCache;
 use rustls_acme::AcmeConfig;
-use actix_web::{App, web, HttpServer, HttpResponse};
 use std::{path::PathBuf, sync::Arc};
-
-
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -40,7 +38,7 @@ async fn main() {
         .cache_option(args.cache.clone().map(DirCache::new))
         .directory_lets_encrypt(args.prod)
         .state();
-    let challenge_rustls_config =  Arc::into_inner(state.challenge_rustls_config()).unwrap();
+    let challenge_rustls_config = Arc::into_inner(state.challenge_rustls_config()).unwrap();
 
     tokio::spawn(async move {
         loop {
@@ -51,14 +49,10 @@ async fn main() {
         }
     });
 
-    HttpServer::new(move || {
-        App::new()
-            .default_service(web::get().to(HttpResponse::Ok))
-    })
-    .bind_rustls_0_23(("0.0.0.0", 443), challenge_rustls_config)
-    .unwrap()
-    .run()
-    .await
-    .unwrap();
-
+    HttpServer::new(move || App::new().default_service(web::get().to(HttpResponse::Ok)))
+        .bind_rustls_0_23(("0.0.0.0", args.port), challenge_rustls_config)
+        .unwrap()
+        .run()
+        .await
+        .unwrap();
 }
