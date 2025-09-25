@@ -167,6 +167,8 @@ pub enum ChallengeType {
     Dns01,
     #[serde(rename = "tls-alpn-01")]
     TlsAlpn01,
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Deserialize)]
