@@ -1,6 +1,6 @@
 [package]
 name = "rustls-acme"
-version = "0.14.0"
+version = "0.14.1"
 authors = ["Florian Uekermann <florian@uekermann.me>"]
 edition = "2018"
 description = "TLS certificate management and serving using rustls"
