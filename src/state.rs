@@ -1,16 +1,16 @@
 use crate::acceptor::AcmeAcceptor;
 use crate::acme::{Account, AcmeError, Auth, AuthStatus, Directory, Identifier, Order, OrderStatus, ACME_TLS_ALPN_NAME};
-use crate::{AcmeConfig, Incoming, ResolvesServerCertAcme};
+use crate::{any_ecdsa_type, crypto_provider, AcmeConfig, Incoming, ResolvesServerCertAcme, UseChallenge};
 use async_io::Timer;
 use chrono::{DateTime, TimeZone, Utc};
 use core::fmt;
-use futures::future::try_join_all;
 use futures::prelude::*;
 use futures::ready;
-use rcgen::{CertificateParams, DistinguishedName, RcgenError, PKCS_ECDSA_P256_SHA256};
-use rustls::sign::{any_ecdsa_type, CertifiedKey};
-use rustls::PrivateKey;
-use rustls::{Certificate as RustlsCertificate, ServerConfig};
+use futures_rustls::pki_types::{CertificateDer as RustlsCertificate, PrivateKeyDer, PrivatePkcs8KeyDer};
+use futures_rustls::rustls::crypto::CryptoProvider;
+use futures_rustls::rustls::sign::CertifiedKey;
+use futures_rustls::rustls::ServerConfig;
+use rcgen::{CertificateParams, DistinguishedName, KeyPair, PKCS_ECDSA_P256_SHA256};
 use std::convert::Infallible;
 use std::fmt::Debug;
 use std::future::Future;
@@ -22,6 +22,7 @@ use thiserror::Error;
 use x509_parser::certificate::Validity;
 use x509_parser::parse_x509_certificate;
 
+#[allow(clippy::type_complexity)]
 pub struct AcmeState<EC: Debug = Infallible, EA: Debug = EC> {
     config: Arc<AcmeConfig<EC, EA>>,
     resolver: Arc<ResolvesServerCertAcme>,
@@ -73,7 +74,7 @@ pub enum OrderError {
     #[error("acme error: {0}")]
     Acme(#[from] AcmeError),
     #[error("certificate generation error: {0}")]
-    Rcgen(#[from] RcgenError),
+    Rcgen(#[from] rcgen::Error),
     #[error("bad order object: {0:?}")]
     BadOrder(Order),
     #[error("bad auth object: {0:?}")]
@@ -145,31 +146,49 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         crate::tokio::TokioIncoming::from(self.incoming(tcp_incoming, alpn_protocols))
     }
     #[cfg(feature = "axum")]
-    pub fn axum_acceptor(&self, rustls_config: Arc<rustls::ServerConfig>) -> crate::axum::AxumAcceptor {
+    pub fn axum_acceptor(&self, rustls_config: Arc<ServerConfig>) -> crate::axum::AxumAcceptor {
         #[allow(deprecated)]
         crate::axum::AxumAcceptor::new(self.acceptor(), rustls_config)
     }
+
+    #[cfg(feature = "tower")]
+    pub fn http01_challenge_tower_service(&self) -> crate::tower::TowerHttp01ChallengeService {
+        crate::tower::TowerHttp01ChallengeService(self.resolver.clone())
+    }
+
     pub fn resolver(&self) -> Arc<ResolvesServerCertAcme> {
         self.resolver.clone()
     }
-    /// Creates a [rustls::ServerConfig] for tls-alpn-01 challenge connections. Use this if [crate::is_tls_alpn_challenge] returns `true`.
+    /// Creates a [rustls::ServerConfig] for TLS-ALPN-01 challenge connections. Use this if [crate::is_tls_alpn_challenge] returns `true`.
+    #[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
     pub fn challenge_rustls_config(&self) -> Arc<ServerConfig> {
-        let mut rustls_config = ServerConfig::builder()
-            .with_safe_defaults()
+        self.challenge_rustls_config_with_provider(crypto_provider().into())
+    }
+    /// Same as [AcmeState::challenge_rustls_config], with a specific [CryptoProvider].
+    pub fn challenge_rustls_config_with_provider(&self, provider: Arc<CryptoProvider>) -> Arc<ServerConfig> {
+        let mut rustls_config = ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
             .with_no_client_auth()
             .with_cert_resolver(self.resolver());
         rustls_config.alpn_protocols.push(ACME_TLS_ALPN_NAME.to_vec());
-        return Arc::new(rustls_config);
+        Arc::new(rustls_config)
     }
     /// Creates a default [rustls::ServerConfig] for accepting regular tls connections. Use this if [crate::is_tls_alpn_challenge] returns `false`.
     /// If you need a [rustls::ServerConfig], which uses the certificates acquired by this [AcmeState],
     /// you may build your own using the output of [AcmeState::resolver].
+    #[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
     pub fn default_rustls_config(&self) -> Arc<ServerConfig> {
-        let rustls_config = ServerConfig::builder()
-            .with_safe_defaults()
+        self.default_rustls_config_with_provider(crypto_provider().into())
+    }
+    /// Same as [AcmeState::default_rustls_config], with a specific [CryptoProvider].
+    pub fn default_rustls_config_with_provider(&self, provider: Arc<CryptoProvider>) -> Arc<ServerConfig> {
+        let rustls_config = ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
             .with_no_client_auth()
             .with_cert_resolver(self.resolver());
-        return Arc::new(rustls_config);
+        Arc::new(rustls_config)
     }
     pub fn new(config: AcmeConfig<EC, EA>) -> Self {
         let config = Arc::new(config);
@@ -192,17 +211,27 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         }
     }
     fn parse_cert(pem: &[u8]) -> Result<(CertifiedKey, [DateTime<Utc>; 2]), CertParseError> {
-        let mut pems = pem::parse_many(&pem)?;
+        let mut pems = pem::parse_many(pem)?;
         if pems.len() < 2 {
             return Err(CertParseError::TooFewPem(pems.len()));
         }
-        let pk = any_ecdsa_type(&PrivateKey(pems.remove(0).contents)).map_err(|_| CertParseError::InvalidPrivateKey)?;
-        let cert_chain: Vec<RustlsCertificate> = pems.into_iter().map(|p| RustlsCertificate(p.contents)).collect();
-        let Validity { not_before, not_after } = parse_x509_certificate(&cert_chain[0].0).map_err(CertParseError::X509)?.1.validity;
-        let validity = [not_before, not_after].map(|t| Utc.timestamp_opt(t.timestamp(), 0).earliest().unwrap());
+        let pk = match any_ecdsa_type(&PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(pems.remove(0).contents()))) {
+            Ok(pk) => pk,
+            Err(_) => return Err(CertParseError::InvalidPrivateKey),
+        };
+        let cert_chain: Vec<RustlsCertificate> = pems.into_iter().map(|p| RustlsCertificate::from(p.into_contents())).collect();
+        let validity = match parse_x509_certificate(&cert_chain[0]) {
+            Ok((_, cert)) => {
+                let validity = cert.validity();
+                [validity.not_before, validity.not_after].map(|t| Utc.timestamp_opt(t.timestamp(), 0).earliest().unwrap())
+            }
+            Err(err) => return Err(CertParseError::X509(err)),
+        };
         let cert = CertifiedKey::new(cert_chain, pk);
         Ok((cert, validity))
     }
+
+    #[allow(clippy::result_large_err)]
     fn process_cert(&mut self, pem: Vec<u8>, cached: bool) -> Event<EC, EA> {
         let (cert, validity) = match (Self::parse_cert(&pem), cached) {
             (Ok(r), _) => r,
@@ -235,17 +264,19 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         let directory = Directory::discover(&config.client_config, &config.directory_url).await?;
         let account = Account::create_with_keypair(&config.client_config, directory, &config.contact, &key_pair).await?;
 
-        let mut params = CertificateParams::new(config.domains.clone());
+        let mut params = CertificateParams::new(config.domains.clone())?;
         params.distinguished_name = DistinguishedName::new();
-        params.alg = &PKCS_ECDSA_P256_SHA256;
-        let cert = rcgen::Certificate::from_params(params)?;
+        let key_pair = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256)?;
+        let csr = params.serialize_request(&key_pair)?;
 
         let (order_url, mut order) = account.new_order(&config.client_config, config.domains.clone()).await?;
         loop {
             match order.status {
                 OrderStatus::Pending => {
-                    let auth_futures = order.authorizations.iter().map(|url| Self::authorize(&config, &resolver, &account, url));
-                    try_join_all(auth_futures).await?;
+                    // Force in order authorizations to allow single global challenge data state
+                    for url in order.authorizations.iter() {
+                        Self::authorize(&config, &resolver, &account, url).await?
+                    }
                     log::info!("completed all authorizations");
                     order = account.order(&config.client_config, &order_url).await?;
                 }
@@ -264,13 +295,12 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                 }
                 OrderStatus::Ready => {
                     log::info!("sending csr");
-                    let csr = cert.serialize_request_der()?;
-                    order = account.finalize(&config.client_config, order.finalize, &csr).await?
+                    order = account.finalize(&config.client_config, order.finalize, csr.der()).await?
                 }
                 OrderStatus::Valid { certificate } => {
                     log::info!("download certificate");
                     let pem = [
-                        &cert.serialize_private_key_pem(),
+                        &key_pair.serialize_pem(),
                         "\n",
                         &account.certificate(&config.client_config, certificate).await?,
                     ]
@@ -287,13 +317,31 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             AuthStatus::Pending => {
                 let Identifier::Dns(domain) = auth.identifier;
                 log::info!("trigger challenge for {}", &domain);
-                let (challenge, auth_key) = account.tls_alpn_01(&auth.challenges, domain.clone())?;
-                resolver.set_auth_key(domain.clone(), Arc::new(auth_key));
+                let challenge = match config.challenge_type {
+                    UseChallenge::Http01 => {
+                        let (challenge, key_auth) = account.http_01(&auth.challenges)?;
+                        resolver.set_http_01_challenge_data(challenge.token.clone(), key_auth);
+                        challenge
+                    }
+                    UseChallenge::TlsAlpn01 => {
+                        let (challenge, auth_key) = account.tls_alpn_01(&auth.challenges, domain.clone())?;
+                        resolver.set_tls_alpn_01_challenge_data(domain.clone(), Arc::new(auth_key));
+                        challenge
+                    }
+                };
                 account.challenge(&config.client_config, &challenge.url).await?;
                 (domain, challenge.url.clone())
             }
-            AuthStatus::Valid => return Ok(()),
-            _ => return Err(OrderError::BadAuth(auth)),
+            AuthStatus::Valid => {
+                // clear challenge data when auth validated
+                resolver.clear_challenge_data();
+                return Ok(());
+            }
+            _ => {
+                // clear challenge data when auth invalidated
+                resolver.clear_challenge_data();
+                return Err(OrderError::BadAuth(auth));
+            }
         };
         for i in 0u64..5 {
             Timer::after(Duration::from_secs(1u64 << i)).await;
@@ -303,8 +351,16 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                     log::info!("authorization for {} still pending", &domain);
                     account.challenge(&config.client_config, &challenge_url).await?
                 }
-                AuthStatus::Valid => return Ok(()),
-                _ => return Err(OrderError::BadAuth(auth)),
+                AuthStatus::Valid => {
+                    // clear challenge data when auth validated
+                    resolver.clear_challenge_data();
+                    return Ok(());
+                }
+                _ => {
+                    // clear challenge data when auth invalidated
+                    resolver.clear_challenge_data();
+                    return Err(OrderError::BadAuth(auth));
+                }
             }
         }
         Err(OrderError::TooManyAttemptsAuth(domain))

@@ -1,11 +1,12 @@
 use crate::acceptor::{AcmeAccept, AcmeAcceptor};
-use crate::AcmeState;
+use crate::{crypto_provider, AcmeState};
 use core::fmt;
 use futures::stream::{FusedStream, FuturesUnordered};
 use futures::{AsyncRead, AsyncWrite, Stream};
+use futures_rustls::rustls::crypto::CryptoProvider;
+use futures_rustls::rustls::ServerConfig;
 use futures_rustls::server::TlsStream;
 use futures_rustls::Accept;
-use rustls::ServerConfig;
 use std::fmt::Debug;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -47,9 +48,22 @@ impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, 
 impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, ETCP>> + Unpin, EC: Debug + 'static, EA: Debug + 'static>
     Incoming<TCP, ETCP, ITCP, EC, EA>
 {
+    #[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
     pub fn new(tcp_incoming: ITCP, state: AcmeState<EC, EA>, acceptor: AcmeAcceptor, alpn_protocols: Vec<Vec<u8>>) -> Self {
-        let mut config = ServerConfig::builder()
-            .with_safe_defaults()
+        Self::new_with_provider(tcp_incoming, state, acceptor, alpn_protocols, crypto_provider().into())
+    }
+
+    /// Same as [Incoming::new], with a specific [CryptoProvider].
+    pub fn new_with_provider(
+        tcp_incoming: ITCP,
+        state: AcmeState<EC, EA>,
+        acceptor: AcmeAcceptor,
+        alpn_protocols: Vec<Vec<u8>>,
+        provider: Arc<CryptoProvider>,
+    ) -> Self {
+        let mut config = ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
             .with_no_client_auth()
             .with_cert_resolver(state.resolver());
         config.alpn_protocols = alpn_protocols;
@@ -74,8 +88,8 @@ impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, 
             match Pin::new(&mut self.state).poll_next(cx) {
                 Poll::Ready(Some(event)) => {
                     match event {
-                        Ok(ok) => log::info!("event: {:?}", ok),
-                        Err(err) => log::error!("event: {:?}", err),
+                        Ok(ok) => log::info!("event: {ok:?}"),
+                        Err(err) => log::error!("event: {err:?}"),
                     }
                     continue;
                 }
@@ -89,7 +103,7 @@ impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, 
                     continue;
                 }
                 Poll::Ready(Some(Err(err))) => {
-                    log::error!("tls accept failed, {:?}", err);
+                    log::error!("tls accept failed, {err:?}");
                     continue;
                 }
                 Poll::Ready(None) | Poll::Pending => {}
@@ -97,7 +111,7 @@ impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, 
             match Pin::new(&mut self.tls_accepting).poll_next(cx) {
                 Poll::Ready(Some(Ok(tls))) => return Poll::Ready(Some(Ok(tls))),
                 Poll::Ready(Some(Err(err))) => {
-                    log::error!("tls accept failed, {:?}", err);
+                    log::error!("tls accept failed, {err:?}");
                     continue;
                 }
                 Poll::Ready(None) | Poll::Pending => {}
@@ -112,7 +126,7 @@ impl<TCP: AsyncRead + AsyncWrite + Unpin, ETCP, ITCP: Stream<Item = Result<TCP, 
             match Pin::new(tcp_incoming).poll_next(cx) {
                 Poll::Ready(Some(Ok(tcp))) => self.acme_accepting.push(self.acceptor.accept(tcp)),
                 Poll::Ready(Some(Err(err))) => return Poll::Ready(Some(Err(err))),
-                Poll::Ready(None) => drop(self.tcp_incoming.as_mut().take()),
+                Poll::Ready(None) => drop(self.tcp_incoming.as_mut()),
                 Poll::Pending => return Poll::Pending,
             }
         }

@@ -1,9 +1,8 @@
+use crate::futures_rustls::rustls::ServerConfig;
 use crate::{AcmeAccept, AcmeAcceptor};
 use futures::prelude::*;
 use futures_rustls::Accept;
-use rustls::ServerConfig;
 use std::io;
-use std::io::ErrorKind;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -57,16 +56,16 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send + 'static, S: Send + 'static> Futu
                     .poll(cx)
                     .map_ok(|tls| (tls.compat(), self.service.take().unwrap()));
             }
-            let poll = Pin::new(&mut self.acme_accept).poll(cx);
-            let Poll::Ready(Ok(start_handshake)) = poll else {
-                return poll.map_ok(|_| unreachable!());
+            return match Pin::new(&mut self.acme_accept).poll(cx) {
+                Poll::Ready(Ok(Some(start_handshake))) => {
+                    let config = self.config.clone();
+                    self.tls_accept = Some(start_handshake.into_stream(config));
+                    continue;
+                }
+                Poll::Ready(Ok(None)) => Poll::Ready(Err(io::Error::other("TLS-ALPN-01 validation request"))),
+                Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
+                Poll::Pending => Poll::Pending,
             };
-            if let Some(start_handshake) = start_handshake {
-                let config = self.config.clone();
-                self.tls_accept = Some(start_handshake.into_stream(config));
-            } else {
-                return Poll::Ready(Err(io::Error::new(ErrorKind::Other, "TLS-ALPN-01 validation request")));
-            }
         }
     }
 }

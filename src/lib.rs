@@ -1,5 +1,5 @@
 //! rustls-acme is an easy-to-use, async compatible ACME client library for rustls.
-//! The validation mechanism used is tls-alpn-01, which allows serving acme challenge responses and
+//! The validation mechanism used is TLS-ALPN-01 OR HTTP-01, which allow serving acme challenge responses and
 //! regular TLS traffic on the same port.
 //!
 //! rustls-acme is designed to be runtime agnostic and as runtime independent as Rust allows at the
@@ -17,6 +17,12 @@
 //! rustls-acme = "*"
 //! ```
 //!
+//! ## Validation mechanims
+//!
+//! Using TLS-ALPN-01 is used by default and recommended.
+//! However, if the DNS entry points to an HTTP proxy, which terminates TLS, but you still need a certificate,
+//! you may be able to use HTTP-01 instead (see `examples/low_level_axum_http01.rs`).
+//!
 //! ## High-level API
 //!
 //! The high-level API consists of a single stream [Incoming] of incoming TLS connection.
@@ -27,7 +33,7 @@
 //! use futures::prelude::*;
 //! use rustls_acme::{AcmeConfig, caches::DirCache};
 //!
-//! #[smol_potat::main]
+//! #[macro_rules_attribute::apply(smol_macros::main!)]
 //! async fn main() {
 //!     simple_logger::init_with_level(log::Level::Info).unwrap();
 //!
@@ -103,9 +109,11 @@
 //! [futures-rustls](https://github.com/quininer/futures-rustls),
 //! and many others.
 //!
-//! Thanks to [Josh Triplett](https://github.com/joshtriplett) for contributions and feedback.
+//! Thanks to:
+//! - [Josh Triplett](https://github.com/joshtriplett) for many contributions and feedback.
+//! - [Jack Klamer](https://github.com/jklamer) for contributing HTTP-01 challenge support.
 
-#![cfg_attr(doc_auto_cfg, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
 mod acceptor;
 pub mod acme;
@@ -123,6 +131,8 @@ mod rework;
 mod state;
 #[cfg(feature = "tokio")]
 pub mod tokio;
+#[cfg(feature = "tower")]
+pub mod tower;
 
 pub use futures_rustls;
 
@@ -134,3 +144,30 @@ pub use incoming::*;
 pub use resolver::*;
 pub use rework::*;
 pub use state::*;
+
+#[cfg(feature = "aws-lc-rs")]
+use ::aws_lc_rs as crypto;
+#[cfg(all(feature = "ring", not(feature = "aws-lc-rs")))]
+use ::ring as crypto;
+
+// TODO: Can we use something like CryptoProvider for rustls, but for ring to drop this requirement?
+#[cfg(not(any(feature = "ring", feature = "aws-lc-rs")))]
+compile_error!("rustls-acme requires either the ring or aws-lc-rs feature enabled");
+
+#[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
+pub(crate) fn any_ecdsa_type(
+    der: &futures_rustls::pki_types::PrivateKeyDer,
+) -> Result<std::sync::Arc<dyn futures_rustls::rustls::sign::SigningKey>, futures_rustls::rustls::Error> {
+    #[cfg(all(feature = "ring", not(feature = "aws-lc-rs")))]
+    return futures_rustls::rustls::crypto::ring::sign::any_ecdsa_type(der);
+    #[cfg(feature = "aws-lc-rs")]
+    return futures_rustls::rustls::crypto::aws_lc_rs::sign::any_ecdsa_type(der);
+}
+
+#[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
+pub(crate) fn crypto_provider() -> futures_rustls::rustls::crypto::CryptoProvider {
+    #[cfg(all(feature = "ring", not(feature = "aws-lc-rs")))]
+    return futures_rustls::rustls::crypto::ring::default_provider();
+    #[cfg(feature = "aws-lc-rs")]
+    return futures_rustls::rustls::crypto::aws_lc_rs::default_provider();
+}

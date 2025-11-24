@@ -1,12 +1,9 @@
+use actix_web::{web, App, HttpResponse, HttpServer};
 use clap::Parser;
-use futures::AsyncWriteExt;
 use futures::StreamExt;
 use rustls_acme::caches::DirCache;
 use rustls_acme::AcmeConfig;
-use smol::net::TcpListener;
-use smol::spawn;
-use std::net::Ipv6Addr;
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -19,7 +16,7 @@ struct Args {
     email: Vec<String>,
 
     /// Cache directory
-    #[clap(short, parse(try_from_str))]
+    #[clap(short, parse(from_os_str))]
     cache: Option<PathBuf>,
 
     /// Use Let's Encrypt production environment
@@ -31,32 +28,31 @@ struct Args {
     port: u16,
 }
 
-#[macro_rules_attribute::apply(smol_macros::main!)]
+#[actix_web::main]
 async fn main() {
     simple_logger::init_with_level(log::Level::Info).unwrap();
     let args = Args::parse();
 
-    let tcp_listener = TcpListener::bind((Ipv6Addr::UNSPECIFIED, args.port)).await.unwrap();
-
-    let mut tls_incoming = AcmeConfig::new(args.domains)
+    let mut state = AcmeConfig::new(args.domains)
         .contact(args.email.iter().map(|e| format!("mailto:{}", e)))
         .cache_option(args.cache.clone().map(DirCache::new))
         .directory_lets_encrypt(args.prod)
-        .incoming(tcp_listener.incoming(), Vec::new());
+        .state();
+    let challenge_rustls_config = Arc::into_inner(state.challenge_rustls_config()).unwrap();
 
-    while let Some(tls) = tls_incoming.next().await {
-        let mut tls = tls.unwrap();
-        spawn(async move {
-            tls.write_all(HELLO).await.unwrap();
-            tls.close().await.unwrap();
-        })
-        .detach()
-    }
-    unreachable!()
+    tokio::spawn(async move {
+        loop {
+            match state.next().await.unwrap() {
+                Ok(ok) => log::info!("event: {:?}", ok),
+                Err(err) => log::error!("error: {:?}", err),
+            }
+        }
+    });
+
+    HttpServer::new(move || App::new().default_service(web::get().to(HttpResponse::Ok)))
+        .bind_rustls_0_23(("0.0.0.0", args.port), challenge_rustls_config)
+        .unwrap()
+        .run()
+        .await
+        .unwrap();
 }
-
-const HELLO: &'static [u8] = br#"HTTP/1.1 200 OK
-Content-Length: 10
-Content-Type: text/plain; charset=utf-8
-
-Hello Tls!"#;

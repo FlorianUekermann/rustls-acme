@@ -1,21 +1,22 @@
+use crate::any_ecdsa_type;
+use crate::crypto::error::{KeyRejected, Unspecified};
+use crate::crypto::rand::SystemRandom;
+use crate::crypto::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm, ECDSA_P256_SHA256_FIXED_SIGNING};
 use std::borrow::Cow;
 use std::ops::Deref;
 use std::sync::Arc;
 
 use crate::https_helper::{https, HttpsRequestError};
-use crate::jose::{key_authorization_sha256, sign, JoseError};
-use base64::URL_SAFE_NO_PAD;
+use crate::jose::{key_authorization, key_authorization_sha256, sign, JoseError};
+use base64::prelude::*;
+use futures_rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
+use futures_rustls::rustls::{sign::CertifiedKey, ClientConfig};
 use http::header::ToStrError;
 use http::{Method, Response};
-use rcgen::{Certificate, CustomExtension, RcgenError, PKCS_ECDSA_P256_SHA256};
-use ring::error::{KeyRejected, Unspecified};
-use ring::rand::SystemRandom;
-use ring::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm, ECDSA_P256_SHA256_FIXED_SIGNING};
-use rustls::sign::{any_ecdsa_type, CertifiedKey};
-use rustls::{ClientConfig, PrivateKey};
+use rcgen::{CustomExtension, KeyPair, PKCS_ECDSA_P256_SHA256};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use thiserror::Error;
+use std::sync::Arc;
 
 pub const LETS_ENCRYPT_STAGING_DIRECTORY: &str = "https://acme-staging-v02.api.letsencrypt.org/directory";
 pub const LETS_ENCRYPT_PRODUCTION_DIRECTORY: &str = "https://acme-v02.api.letsencrypt.org/directory";
@@ -28,7 +29,7 @@ pub struct Account {
     pub kid: String,
 }
 
-static ALG: &'static EcdsaSigningAlgorithm = &ECDSA_P256_SHA256_FIXED_SIGNING;
+static ALG: &EcdsaSigningAlgorithm = &ECDSA_P256_SHA256_FIXED_SIGNING;
 
 impl Account {
     pub fn generate_key_pair() -> Vec<u8> {
@@ -42,7 +43,7 @@ impl Account {
         I: IntoIterator<Item = &'a S>,
     {
         let key_pair = Self::generate_key_pair();
-        Ok(Self::create_with_keypair(client_config, directory, contact, &key_pair).await?)
+        Self::create_with_keypair(client_config, directory, contact, &key_pair).await
     }
     pub async fn create_with_keypair<'a, S, I>(
         client_config: &Arc<ClientConfig>,
@@ -54,7 +55,13 @@ impl Account {
         S: AsRef<str> + 'a,
         I: IntoIterator<Item = &'a S>,
     {
-        let key_pair = EcdsaKeyPair::from_pkcs8(ALG, key_pair)?;
+        let key_pair = EcdsaKeyPair::from_pkcs8(
+            ALG,
+            key_pair,
+            // ring 0.17 has a third argument here; aws-lc-rs doesn't.
+            #[cfg(all(feature = "ring", not(feature = "aws-lc-rs")))]
+            &SystemRandom::new(),
+        )?;
         let contact: Vec<&'a str> = contact.into_iter().map(AsRef::<str>::as_ref).collect();
         let payload = json!({
             "termsOfServiceAgreed": true,
@@ -77,59 +84,62 @@ impl Account {
         let response = https(client_config, url.as_ref(), Method::POST, Some(body)).await?;
         let location = get_header(&response, "Location").ok();
         let body = response.into_body();
-        log::debug!("response: {:?}", body);
+        log::debug!("response: {body:?}");
         Ok((location, body))
     }
-    pub async fn new_order<'d, D: Into<SerIdentifier<'d>>>(
-        &self,
-        client_config: &Arc<ClientConfig>,
-        domains: impl IntoIterator<Item = D>,
-    ) -> Result<(String, Order), AcmeError> {
-        let domains: Vec<SerIdentifier<'d>> = domains.into_iter().map(Into::into).collect();
+    pub async fn new_order(&self, client_config: &Arc<ClientConfig>, domains: Vec<String>) -> Result<(String, Order), AcmeError> {
+        let domains: Vec<Identifier> = domains.into_iter().map(Identifier::Dns).collect();
         let payload = format!("{{\"identifiers\":{}}}", serde_json::to_string(&domains)?);
-        log::debug!("new order: {:?}", payload);
         let response = self.request(client_config, &self.directory.new_order, &payload).await?;
         let url = response.0.ok_or(AcmeError::MissingHeader("Location"))?;
         let order = serde_json::from_str(&response.1)?;
         Ok((url, order))
     }
     pub async fn auth(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>) -> Result<Auth, AcmeError> {
-        log::debug!("auth");
-        let response = self.request(client_config, url, "").await?;
+        let payload = "".to_string();
+        let response = self.request(client_config, url, &payload).await?;
         Ok(serde_json::from_str(&response.1)?)
     }
     pub async fn challenge(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>) -> Result<(), AcmeError> {
-        log::debug!("challenge");
-        self.request(client_config, url, "{}").await?;
+        self.request(client_config, &url, "{}").await?;
         Ok(())
     }
     pub async fn order(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>) -> Result<Order, AcmeError> {
-        log::debug!("order");
-        let response = self.request(client_config, url, "").await?;
+        let response = self.request(client_config, &url, "").await?;
         Ok(serde_json::from_str(&response.1)?)
     }
-    pub async fn finalize(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>, csr: impl AsRef<[u8]>) -> Result<Order, AcmeError> {
-        let payload = format!("{{\"csr\":\"{}\"}}", base64::encode_config(csr, URL_SAFE_NO_PAD));
-        let response = self.request(client_config, url, &payload).await?;
+    pub async fn finalize(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>, csr: &[u8]) -> Result<Order, AcmeError> {
+        let payload = format!("{{\"csr\":\"{}\"}}", BASE64_URL_SAFE_NO_PAD.encode(csr));
+        let response = self.request(client_config, &url, &payload).await?;
         Ok(serde_json::from_str(&response.1)?)
     }
     pub async fn certificate(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>) -> Result<String, AcmeError> {
         Ok(self.request(client_config, url, "").await?.1)
     }
-    pub fn tls_alpn_01<'a>(&self, challenges: &'a Vec<Challenge>, domain: impl Into<String>) -> Result<(&'a Challenge, CertifiedKey), AcmeError> {
-        let challenge = challenges.iter().filter(|c| c.typ == ChallengeType::TlsAlpn01).next();
+    pub fn tls_alpn_01<'a>(&self, challenges: &'a [Challenge], domain: impl Into<String>) -> Result<(&'a Challenge, CertifiedKey), AcmeError> {
+        let challenge = challenges.iter().find(|c| c.typ == ChallengeType::TlsAlpn01);
         let challenge = match challenge {
             Some(challenge) => challenge,
             None => return Err(AcmeError::NoTlsAlpn01Challenge),
         };
-        let mut params = rcgen::CertificateParams::new(vec![domain.into()]);
-        let key_auth = key_authorization_sha256(&self.key_pair, &*challenge.token)?;
-        params.alg = &PKCS_ECDSA_P256_SHA256;
+        let mut params = rcgen::CertificateParams::new(vec![domain])?;
+        let key_auth = key_authorization_sha256(&self.key_pair, &challenge.token)?;
         params.custom_extensions = vec![CustomExtension::new_acme_identifier(key_auth.as_ref())];
-        let cert = Certificate::from_params(params)?;
-        let pk = any_ecdsa_type(&PrivateKey(cert.serialize_private_key_der())).unwrap();
-        let certified_key = CertifiedKey::new(vec![rustls::Certificate(cert.serialize_der()?)], pk);
+        let key_pair = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256)?;
+        let cert = params.self_signed(&key_pair)?;
+
+        let sk = any_ecdsa_type(&PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_pair.serialize_der()))).unwrap();
+        let certified_key = CertifiedKey::new(vec![cert.der().clone()], sk);
         Ok((challenge, certified_key))
+    }
+    pub fn http_01<'a>(&self, challenges: &'a [Challenge]) -> Result<(&'a Challenge, String), AcmeError> {
+        let challenge = challenges.iter().find(|c| c.typ == ChallengeType::Http01);
+        let challenge = match challenge {
+            Some(challenge) => challenge,
+            None => return Err(AcmeError::NoHttp01Challenge),
+        };
+        let key_auth = key_authorization(&self.key_pair, &challenge.token)?;
+        Ok((challenge, key_auth))
     }
 }
 
@@ -160,6 +170,8 @@ pub enum ChallengeType {
     Dns01,
     #[serde(rename = "tls-alpn-01")]
     TlsAlpn01,
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Deserialize)]
@@ -168,7 +180,6 @@ pub struct Order {
     #[serde(flatten)]
     pub status: OrderStatus,
     pub authorizations: Vec<String>,
-    pub identifiers: Vec<Identifier>,
     pub finalize: String,
     pub error: Option<Problem>,
 }
@@ -208,50 +219,6 @@ pub enum Identifier {
     Dns(String),
 }
 
-impl Deref for Identifier {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        let Self::Dns(str) = self;
-        str
-    }
-}
-
-impl AsRef<str> for Identifier {
-    fn as_ref(&self) -> &str {
-        self.deref()
-    }
-}
-
-#[derive(Serialize)]
-#[serde(tag = "type", content = "value", rename_all = "camelCase")]
-pub enum SerIdentifier<'a> {
-    Dns(Cow<'a, str>),
-}
-
-impl<'a> From<&'a str> for SerIdentifier<'a> {
-    fn from(value: &'a str) -> Self {
-        Self::Dns(Cow::Borrowed(value))
-    }
-}
-
-impl<'a> From<&'a Identifier> for SerIdentifier<'a> {
-    fn from(value: &'a Identifier) -> Self {
-        Self::Dns(Cow::Borrowed(&value))
-    }
-}
-
-impl<'a> From<&'a String> for SerIdentifier<'a> {
-    fn from(value: &'a String) -> Self {
-        Self::Dns(Cow::Borrowed(&value))
-    }
-}
-impl<'a> From<String> for SerIdentifier<'a> {
-    fn from(value: String) -> Self {
-        Self::Dns(Cow::Owned(value))
-    }
-}
-
 #[derive(Debug, Deserialize)]
 pub struct Challenge {
     #[serde(rename = "type")]
@@ -274,7 +241,7 @@ pub enum AcmeError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("certificate generation error: {0}")]
-    Rcgen(#[from] RcgenError),
+    Rcgen(#[from] rcgen::Error),
     #[error("JOSE error: {0}")]
     Jose(#[from] JoseError),
     #[error("JSON error: {0}")]
@@ -289,8 +256,10 @@ pub enum AcmeError {
     Crypto(#[from] Unspecified),
     #[error("acme service response is missing {0} header")]
     MissingHeader(&'static str),
-    #[error("no tls-alpn-01 challenge found")]
+    #[error("no TLS-ALPN-01 challenge found")]
     NoTlsAlpn01Challenge,
+    #[error("no HTTP-01 challenge found")]
+    NoHttp01Challenge,
 }
 
 impl From<http::Error> for AcmeError {
@@ -300,7 +269,7 @@ impl From<http::Error> for AcmeError {
 }
 
 fn get_header(response: &Response<String>, header: &'static str) -> Result<String, AcmeError> {
-    match response.headers().get_all(header).iter().last() {
+    match response.headers().get_all(header).iter().next_back() {
         None => Err(AcmeError::MissingHeader(header)),
         Some(value) => Ok(value.to_str()?.to_string()),
     }

@@ -1,6 +1,9 @@
+use crate::crypto::digest::{Context, SHA256};
+use crate::{AccountCache, CertCache};
 use crate::acme::LETS_ENCRYPT_PRODUCTION_DIRECTORY;
 use crate::{AccountCache, CachedCertificate, CertCache, CertificateInfo, MultiCertCache};
 use async_trait::async_trait;
+use base64::prelude::*;
 use blocking::unblock;
 use futures::future::join_all;
 use ring::digest::{Context, SHA256};
@@ -21,7 +24,7 @@ impl<P: AsRef<Path> + Send + Sync> DirCache<P> {
             Ok(content) => Ok(Some(content)),
             Err(err) => match err.kind() {
                 ErrorKind::NotFound => Ok(None),
-                _ => Err(err.into()),
+                _ => Err(err),
             },
         }
     }
@@ -39,8 +42,8 @@ impl<P: AsRef<Path> + Send + Sync> DirCache<P> {
             ctx.update(&[0])
         }
         ctx.update(directory_url.as_ref().as_bytes());
-        let hash = base64::encode_config(ctx.finish(), base64::URL_SAFE_NO_PAD);
-        format!("cached_account_{}", hash)
+        let hash = BASE64_URL_SAFE_NO_PAD.encode(ctx.finish());
+        format!("cached_account_{hash}")
     }
     fn cached_cert_file_name(domains: &[String], directory_url: impl AsRef<str>) -> String {
         let mut ctx = Context::new(&SHA256);
@@ -49,8 +52,8 @@ impl<P: AsRef<Path> + Send + Sync> DirCache<P> {
             ctx.update(&[0])
         }
         ctx.update(directory_url.as_ref().as_bytes());
-        let hash = base64::encode_config(ctx.finish(), base64::URL_SAFE_NO_PAD);
-        format!("cached_cert_{}", hash)
+        let hash = BASE64_URL_SAFE_NO_PAD.encode(ctx.finish());
+        format!("cached_cert_{hash}")
     }
 }
 
@@ -58,11 +61,11 @@ impl<P: AsRef<Path> + Send + Sync> DirCache<P> {
 impl<P: AsRef<Path> + Send + Sync> CertCache for DirCache<P> {
     type EC = std::io::Error;
     async fn load_cert(&self, domains: &[String], directory_url: &str) -> Result<Option<Vec<u8>>, Self::EC> {
-        let file_name = Self::cached_cert_file_name(&domains, directory_url);
+        let file_name = Self::cached_cert_file_name(domains, directory_url);
         self.read_if_exist(file_name).await
     }
     async fn store_cert(&self, domains: &[String], directory_url: &str, cert: &[u8]) -> Result<(), Self::EC> {
-        let file_name = Self::cached_cert_file_name(&domains, directory_url);
+        let file_name = Self::cached_cert_file_name(domains, directory_url);
         self.write(file_name, cert).await
     }
 }
@@ -71,12 +74,12 @@ impl<P: AsRef<Path> + Send + Sync> CertCache for DirCache<P> {
 impl<P: AsRef<Path> + Send + Sync> AccountCache for DirCache<P> {
     type EA = std::io::Error;
     async fn load_account(&self, contact: &[String], directory_url: &str) -> Result<Option<Vec<u8>>, Self::EA> {
-        let file_name = Self::cached_account_file_name(&contact, directory_url);
+        let file_name = Self::cached_account_file_name(contact, directory_url);
         self.read_if_exist(file_name).await
     }
 
     async fn store_account(&self, contact: &[String], directory_url: &str, account: &[u8]) -> Result<(), Self::EA> {
-        let file_name = Self::cached_account_file_name(&contact, directory_url);
+        let file_name = Self::cached_account_file_name(contact, directory_url);
         self.write(file_name, account).await
     }
 }

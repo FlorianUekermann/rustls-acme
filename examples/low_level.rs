@@ -1,8 +1,8 @@
 use clap::Parser;
 use futures::AsyncWriteExt;
 use futures::StreamExt;
-use futures_rustls::LazyConfigAcceptor;
 use rustls_acme::caches::DirCache;
+use rustls_acme::futures_rustls::LazyConfigAcceptor;
 use rustls_acme::is_tls_alpn_challenge;
 use rustls_acme::AcmeConfig;
 use smol::net::TcpListener;
@@ -33,7 +33,7 @@ struct Args {
     port: u16,
 }
 
-#[smol_potat::main]
+#[macro_rules_attribute::apply(smol_macros::main!)]
 async fn main() {
     simple_logger::init_with_level(log::Level::Info).unwrap();
     let args = Args::parse();
