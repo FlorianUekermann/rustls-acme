@@ -127,7 +127,7 @@ mod https_helper;
 mod incoming;
 mod jose;
 mod resolver;
-mod rework;
+mod runtime_resolver;
 mod state;
 #[cfg(feature = "tokio")]
 pub mod tokio;
@@ -142,7 +142,7 @@ pub use config::*;
 pub use helpers::*;
 pub use incoming::*;
 pub use resolver::*;
-pub use rework::*;
+pub use runtime_resolver::*;
 pub use state::*;
 
 #[cfg(feature = "aws-lc-rs")]

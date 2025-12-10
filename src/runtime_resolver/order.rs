@@ -1,5 +1,5 @@
 use crate::acme::{Account, AcmeError, Order, OrderStatus};
-use crate::rework::auth::authorize_all;
+use crate::runtime_resolver::auth::authorize_all;
 use crate::{CertificateHandle, CertificateInfo, OrderError};
 use async_io::Timer;
 
