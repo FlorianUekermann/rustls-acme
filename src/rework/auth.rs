@@ -1,10 +1,10 @@
-use crate::acme::{Account, AuthStatus};
+use crate::acme::{Account, AuthStatus, Identifier};
 use crate::{CertificateHandle, OrderError};
 use async_io::Timer;
 use futures::future::try_join_all;
-use rustls::ClientConfig;
 use std::sync::Arc;
 use std::time::Duration;
+use futures_rustls::rustls::ClientConfig;
 
 pub async fn authorize_all<U: AsRef<str>>(
     ref client_config: &Arc<ClientConfig>,
@@ -26,9 +26,11 @@ pub async fn authorize(
     let auth = account.auth(client_config, url).await?;
     let (domain, challenge_url) = match auth.status {
         AuthStatus::Pending => {
-            let domain: &str = &auth.identifier;
+            let domain: &str = match &auth.identifier {
+                Identifier::Dns(d) => d.as_str(),
+            };
             log::info!("trigger challenge for {}", domain);
-            let (challenge, auth_key) = account.tls_alpn_01(&auth.challenges, domain)?;
+            let (challenge, auth_key) = account.tls_alpn_01(&auth.challenges, domain.to_string())?;
             resolver.set_auth_key(domain, Arc::new(auth_key));
             account.challenge(client_config, &challenge.url).await?;
             (domain, challenge.url.clone())

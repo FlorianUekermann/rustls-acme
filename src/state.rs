@@ -19,7 +19,6 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use thiserror::Error;
-use x509_parser::certificate::Validity;
 use x509_parser::parse_x509_certificate;
 
 #[allow(clippy::type_complexity)]
@@ -27,6 +26,7 @@ pub struct AcmeState<EC: Debug = Infallible, EA: Debug = EC> {
     config: Arc<AcmeConfig<EC, EA>>,
     resolver: Arc<ResolvesServerCertAcme>,
     account_key: Option<Vec<u8>>,
+
     early_action: Option<Pin<Box<dyn Future<Output = Event<EC, EA>> + Send>>>,
     load_cert: Option<Pin<Box<dyn Future<Output = Result<Option<Vec<u8>>, EC>> + Send>>>,
     load_account: Option<Pin<Box<dyn Future<Output = Result<Option<Vec<u8>>, EA>> + Send>>>,

@@ -1,17 +1,18 @@
 use crate::acme::Account;
 use crate::rework::order::order;
-use crate::{CertParseError, OrderError};
+use crate::{any_ecdsa_type, CertParseError, OrderError};
 use bytes::Bytes;
 use chrono::{DateTime, TimeZone, Utc};
-use rustls::sign::{any_ecdsa_type, CertifiedKey};
-use rustls::{Certificate, ClientConfig, PrivateKey};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use futures_rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use futures_rustls::rustls::ClientConfig;
+use futures_rustls::rustls::sign::CertifiedKey;
 use x509_parser::certificate::Validity;
 use x509_parser::extensions::GeneralName;
 use x509_parser::parse_x509_certificate;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct FinalCertificate {
     validity: [DateTime<Utc>; 2],
     pem: Bytes,
@@ -26,6 +27,7 @@ pub struct CertificateInfo {
     pub pem: Bytes,
 }
 
+#[derive(Debug)]
 struct InnerCertificateHandle {
     automatic: bool,
     auth_keys: HashMap<String, Arc<CertifiedKey>>,
@@ -34,6 +36,7 @@ struct InnerCertificateHandle {
 
 impl InnerCertificateHandle {}
 
+#[derive(Debug)]
 pub struct CertificateHandle {
     inner: Mutex<InnerCertificateHandle>,
     domains: Vec<String>,
@@ -58,9 +61,16 @@ impl CertificateHandle {
         if pems.len() < 2 {
             return Err(CertParseError::TooFewPem(pems.len()));
         }
-        let pk = any_ecdsa_type(&PrivateKey(pems.remove(0).contents)).map_err(|_| CertParseError::InvalidPrivateKey)?;
-        let cert_chain: Vec<Certificate> = pems.into_iter().map(|p| Certificate(p.contents)).collect();
-        let (_, x509) = parse_x509_certificate(&cert_chain.first().unwrap().0).map_err(CertParseError::X509)?;
+        // first PEM is the private key
+        let key_pem = pems.remove(0);
+        let pk_der = PrivateKeyDer::Pkcs8(key_pem.contents().into());
+        let pk = any_ecdsa_type(&pk_der).map_err(|_| CertParseError::InvalidPrivateKey)?;
+        // remaining PEMs are the certificate chain
+        let cert_chain: Vec<CertificateDer<'static>> = pems
+            .into_iter()
+            .map(|p| CertificateDer::from(p.contents().to_vec()))
+            .collect();
+        let (_, x509) = parse_x509_certificate(&cert_chain.first().unwrap()).map_err(CertParseError::X509)?;
         let Validity { not_before, not_after } = x509.validity();
         let validity = [not_before, not_after].map(|t| Utc.timestamp_opt(t.timestamp(), 0).earliest().unwrap());
         let domains: Vec<_> = x509

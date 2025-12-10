@@ -3,10 +3,10 @@ use crate::rework::auth::authorize_all;
 use crate::{CertificateHandle, CertificateInfo, OrderError};
 use async_io::Timer;
 
-use rcgen::{Certificate, CertificateParams, DistinguishedName, PKCS_ECDSA_P256_SHA256};
-use rustls::ClientConfig;
+use rcgen::{CertificateParams, DistinguishedName, KeyPair, PKCS_ECDSA_P256_SHA256};
 use std::sync::Arc;
 use std::time::Duration;
+use futures_rustls::rustls::ClientConfig;
 
 struct OrderProcess<'a> {
     account: &'a Account,
@@ -14,24 +14,25 @@ struct OrderProcess<'a> {
     handle: &'a CertificateHandle,
     order: Order,
     url: String,
-    cert: Certificate,
+    params: CertificateParams,
+    key_pair: KeyPair
 }
 impl<'a> OrderProcess<'a> {
     async fn new(account: &'a Account, client_config: &'a Arc<ClientConfig>, handle: &'a CertificateHandle) -> Result<OrderProcess<'a>, AcmeError> {
         log::info!("starting order");
-        let (url, order) = account.new_order(client_config, handle.domains()).await?;
+        let (url, order) = account.new_order(client_config, handle.domains().iter().cloned().collect()).await?;
         log::debug!("order: {:?}", order);
-        let mut params = CertificateParams::new(order.identifiers.iter().map(|it| it.to_string()).collect::<Vec<_>>());
+        let mut params = CertificateParams::new(handle.domains())?;
         params.distinguished_name = DistinguishedName::new();
-        params.alg = &PKCS_ECDSA_P256_SHA256;
-        let cert = Certificate::from_params(params)?;
+        let key_pair = rcgen::KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256)?;
         Ok(Self {
             client_config,
             account,
             url,
             order,
             handle,
-            cert,
+            params,
+            key_pair
         })
     }
 
@@ -69,20 +70,20 @@ impl<'a> OrderProcess<'a> {
     }
     async fn finalize(mut self) -> Result<OrderProcess<'a>, OrderError> {
         log::info!("sending csr");
-        let csr = self.cert.serialize_request_der()?;
-        self.order = self.account.finalize(&self.client_config, &self.order.finalize, csr).await?;
+        let csr = self.params.serialize_request(&self.key_pair)?;
+        self.order = self.account.finalize(&self.client_config, &self.order.finalize, csr.der()).await?;
         Ok(self)
     }
 
-    async fn to_certificate(&self, certificate: &str) -> Result<CertificateInfo, OrderError> {
+    async fn to_certificate(&self, certificate_url: &str) -> Result<CertificateInfo, OrderError> {
         log::info!("download certificate");
         let pem: String = [
-            &self.cert.serialize_private_key_pem(),
+            &self.key_pair.serialize_pem(),
             "\n",
-            &self.account.certificate(&self.client_config, certificate).await?,
+            &self.account.certificate(&self.client_config, certificate_url).await?,
         ]
         .concat();
-        return Ok(self.handle.use_pem(pem, true)?);
+        Ok(self.handle.use_pem(pem, true)?)
     }
 }
 

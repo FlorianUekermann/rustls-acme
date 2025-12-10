@@ -1,8 +1,8 @@
 use crate::acme::ACME_TLS_ALPN_NAME;
-use crate::{crypto_provider, is_tls_alpn_challenge, ResolvesServerCertAcme};
+use crate::{crypto_provider, is_tls_alpn_challenge};
 use core::fmt;
 use futures::prelude::*;
-use futures_rustls::rustls::server::Acceptor;
+use futures_rustls::rustls::server::{Acceptor, ResolvesServerCert};
 use futures_rustls::rustls::ServerConfig;
 use futures_rustls::{Accept, LazyConfigAcceptor, StartHandshake};
 use std::io;
@@ -18,7 +18,7 @@ pub struct AcmeAcceptor {
 impl AcmeAcceptor {
     #[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
     #[deprecated(note = "please use high-level API via `AcmeState::incoming()` instead or refer to updated low-level API examples")]
-    pub(crate) fn new<T: ResolvesServerCert + 'static>(resolver: Arc<T>) -> Self {
+    pub(crate) fn new(resolver: Arc<dyn ResolvesServerCert>) -> Self {
         let mut config = ServerConfig::builder_with_provider(crypto_provider().into())
             .with_safe_default_protocol_versions()
             .unwrap()

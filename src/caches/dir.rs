@@ -1,15 +1,14 @@
+use std::fmt::Debug;
 use crate::crypto::digest::{Context, SHA256};
-use crate::{AccountCache, CertCache};
-use crate::acme::LETS_ENCRYPT_PRODUCTION_DIRECTORY;
 use crate::{AccountCache, CachedCertificate, CertCache, CertificateInfo, MultiCertCache};
 use async_trait::async_trait;
 use base64::prelude::*;
 use blocking::unblock;
 use futures::future::join_all;
-use ring::digest::{Context, SHA256};
 use std::io::ErrorKind;
 use std::path::Path;
 
+#[derive(Debug)]
 pub struct DirCache<P: AsRef<Path> + Send + Sync> {
     inner: P,
 }
@@ -114,16 +113,16 @@ impl<T: AsRef<Path> + Send + Sync> MultiCertCache for DirCache<T> {
             .collect())
     }
 
-    async fn load_cert(&self, domains: &[String]) -> Result<Option<CachedCertificate>, Self::EC> {
-        let file_name = Self::cached_cert_file_name(&domains, LETS_ENCRYPT_PRODUCTION_DIRECTORY);
+    async fn load_cert(&self, domains: &[String], directory_url: &str) -> Result<Option<CachedCertificate>, Self::EC> {
+        let file_name = Self::cached_cert_file_name(&domains, directory_url);
         Ok(self.read_if_exist(file_name).await?.map(|it| CachedCertificate {
             automatic: true,
             pem: it.into(),
         }))
     }
 
-    async fn store_cert(&self, cert: &CertificateInfo) -> Result<(), Self::EC> {
-        let file_name = Self::cached_cert_file_name(&cert.domains, LETS_ENCRYPT_PRODUCTION_DIRECTORY);
+    async fn store_cert(&self, cert: &CertificateInfo, directory_url: &str) -> Result<(), Self::EC> {
+        let file_name = Self::cached_cert_file_name(&cert.domains, directory_url);
         self.write(file_name, &cert.pem).await
     }
 }

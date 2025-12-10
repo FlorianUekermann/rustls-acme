@@ -6,29 +6,31 @@ use async_notify::Notify;
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use futures::future::select;
+use futures_rustls::rustls::server::{ClientHello, ResolvesServerCert};
+use futures_rustls::rustls::sign::CertifiedKey;
+use futures_rustls::rustls::ClientConfig;
+use log::error;
 use multi_key_map::MultiKeyMap;
 use pin_project::pin_project;
-use rustls::server::{ClientHello, ResolvesServerCert};
-use rustls::sign::CertifiedKey;
-use rustls::ClientConfig;
 use std::borrow::Borrow;
 use std::collections::HashSet;
-
-use log::error;
+use std::fmt::Debug;
 use std::future::Future;
 use std::pin::{pin, Pin};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use stream_throttle::{ThrottlePool, ThrottleRate};
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct InnerResolver {
     map: MultiKeyMap<String, Arc<CertificateHandle>>,
     keys: HashSet<String>,
 }
 
+#[derive(Debug)]
 pub struct StreamlinedResolver<C> {
     inner: Mutex<InnerResolver>,
+    directory_url: String,
     notifier: Arc<Notify>,
     updater_handles: Arc<()>,
     cache: C,
@@ -61,6 +63,7 @@ impl<C> StreamlinedResolver<C> {
     pub async fn new_with_updater(
         account: impl Borrow<Account> + Send + Sync,
         client_config: impl Borrow<Arc<ClientConfig>> + Send + Sync,
+        directory_url: String,
         cache: C,
     ) -> Result<(Arc<Self>, Updater<impl Future<Output = ()> + Send>), ResolverError<C::EC>>
     where
@@ -71,6 +74,7 @@ impl<C> StreamlinedResolver<C> {
             inner: Mutex::new(Default::default()),
             notifier: Arc::new(Default::default()),
             updater_handles: Arc::new(()),
+            directory_url,
             cache,
         });
         for cert in certs {
@@ -137,7 +141,12 @@ impl<C> StreamlinedResolver<C> {
         domains.sort();
         domains.dedup();
         Ok(
-            if let Some(existing) = self.cache.load_cert(domains.borrow()).await.map_err(ResolverError::Cache)? {
+            if let Some(existing) = self
+                .cache
+                .load_cert(domains.borrow(), &self.directory_url)
+                .await
+                .map_err(ResolverError::Cache)?
+            {
                 self.create_pem_handle(existing.pem, existing.automatic)?
             } else {
                 self.create_handle(CertificateHandle::from_domains(domains, automatic))
@@ -190,7 +199,7 @@ impl<C> StreamlinedResolver<C> {
                         limit.queue().await
                     }
                     let info = handle.order(account, client_config).await?;
-                    if let Err(err) = self.cache.store_cert(&info).await {
+                    if let Err(err) = self.cache.store_cert(&info, &self.directory_url).await {
                         error!("Unable to store generated certificate in cache: {:?}", err);
                     }
                     info.validity[1]
@@ -205,23 +214,23 @@ impl<C> StreamlinedResolver<C> {
 
     pub fn acceptor(self: &Arc<Self>) -> AcmeAcceptor
     where
-        C: Send + Sync + 'static,
+        C: Debug + Send + Sync + 'static,
     {
         #[allow(deprecated)]
         AcmeAcceptor::new(self.clone())
     }
 
     #[cfg(feature = "axum")]
-    pub fn axum_acceptor(self: &Arc<Self>, rustls_config: Arc<rustls::ServerConfig>) -> crate::axum::AxumAcceptor
+    pub fn axum_acceptor(self: &Arc<Self>, rustls_config: Arc<crate::futures_rustls::rustls::ServerConfig>) -> crate::axum::AxumAcceptor
     where
-        C: Send + Sync + 'static,
+        C: Debug + Send + Sync + 'static,
     {
         #[allow(deprecated)]
         crate::axum::AxumAcceptor::new(self.acceptor(), rustls_config)
     }
 }
 
-impl<C: Send + Sync> ResolvesServerCert for StreamlinedResolver<C> {
+impl<C: Debug + Send + Sync> ResolvesServerCert for StreamlinedResolver<C> {
     fn resolve(&self, client_hello: ClientHello) -> Option<Arc<CertifiedKey>> {
         let Some(domain) = client_hello.server_name() else {
             log::warn!("client did not supply SNI");

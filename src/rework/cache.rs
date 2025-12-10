@@ -13,8 +13,8 @@ pub struct CachedCertificate {
 pub trait MultiCertCache: Send + Sync {
     type EC: Debug;
     async fn load_all_certs(&self) -> Result<Vec<CachedCertificate>, Self::EC>;
-    async fn load_cert(&self, domains: &[String]) -> Result<Option<CachedCertificate>, Self::EC>;
-    async fn store_cert(&self, cert: &CertificateInfo) -> Result<(), Self::EC>;
+    async fn load_cert(&self, domains: &[String], directory_url: &str) -> Result<Option<CachedCertificate>, Self::EC>;
+    async fn store_cert(&self, cert: &CertificateInfo, directory_url: &str) -> Result<(), Self::EC>;
 }
 
 #[async_trait]
@@ -25,8 +25,8 @@ impl<EC: Debug, EA: Debug> MultiCertCache for TestCache<EC, EA> {
         Ok(vec![])
     }
 
-    async fn load_cert(&self, domains: &[String]) -> Result<Option<CachedCertificate>, Self::EC> {
-        CertCache::load_cert(self, domains, "").await.map(|it| {
+    async fn load_cert(&self, domains: &[String], directory_url: &str) -> Result<Option<CachedCertificate>, Self::EC> {
+        CertCache::load_cert(self, domains, directory_url).await.map(|it| {
             it.map(|it| CachedCertificate {
                 automatic: false,
                 pem: it.into(),
@@ -34,7 +34,7 @@ impl<EC: Debug, EA: Debug> MultiCertCache for TestCache<EC, EA> {
         })
     }
 
-    async fn store_cert(&self, _cert: &CertificateInfo) -> Result<(), Self::EC> {
-        CertCache::store_cert(self, &[], "", &[]).await
+    async fn store_cert(&self, cert: &CertificateInfo, directory_url: &str) -> Result<(), Self::EC> {
+        CertCache::store_cert(self, &cert.domains, directory_url, &cert.pem).await
     }
 }

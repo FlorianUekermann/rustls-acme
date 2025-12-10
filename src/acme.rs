@@ -2,10 +2,6 @@ use crate::any_ecdsa_type;
 use crate::crypto::error::{KeyRejected, Unspecified};
 use crate::crypto::rand::SystemRandom;
 use crate::crypto::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm, ECDSA_P256_SHA256_FIXED_SIGNING};
-use std::borrow::Cow;
-use std::ops::Deref;
-use std::sync::Arc;
-
 use crate::https_helper::{https, HttpsRequestError};
 use crate::jose::{key_authorization, key_authorization_sha256, sign, JoseError};
 use base64::prelude::*;
@@ -17,6 +13,7 @@ use rcgen::{CustomExtension, KeyPair, PKCS_ECDSA_P256_SHA256};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
+use thiserror::Error;
 
 pub const LETS_ENCRYPT_STAGING_DIRECTORY: &str = "https://acme-staging-v02.api.letsencrypt.org/directory";
 pub const LETS_ENCRYPT_PRODUCTION_DIRECTORY: &str = "https://acme-v02.api.letsencrypt.org/directory";
@@ -114,9 +111,9 @@ impl Account {
         Ok(serde_json::from_str(&response.1)?)
     }
     pub async fn certificate(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>) -> Result<String, AcmeError> {
-        Ok(self.request(client_config, url, "").await?.1)
+        Ok(self.request(client_config, &url, "").await?.1)
     }
-    pub fn tls_alpn_01<'a>(&self, challenges: &'a [Challenge], domain: impl Into<String>) -> Result<(&'a Challenge, CertifiedKey), AcmeError> {
+    pub fn tls_alpn_01<'a>(&self, challenges: &'a [Challenge], domain: String) -> Result<(&'a Challenge, CertifiedKey), AcmeError> {
         let challenge = challenges.iter().find(|c| c.typ == ChallengeType::TlsAlpn01);
         let challenge = match challenge {
             Some(challenge) => challenge,
