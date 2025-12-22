@@ -17,7 +17,7 @@
 //! rustls-acme = "*"
 //! ```
 //!
-//! ## Validation mechanims
+//! ## Validation mechanisms
 //!
 //! Using TLS-ALPN-01 is used by default and recommended.
 //! However, if the DNS entry points to an HTTP proxy, which terminates TLS, but you still need a certificate,
