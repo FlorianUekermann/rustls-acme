@@ -1,8 +1,8 @@
 use crate::acme::ACME_TLS_ALPN_NAME;
-use crate::{crypto_provider, is_tls_alpn_challenge, ResolvesServerCertAcme};
+use crate::{crypto_provider, is_tls_alpn_challenge};
 use core::fmt;
 use futures::prelude::*;
-use futures_rustls::rustls::server::Acceptor;
+use futures_rustls::rustls::server::{Acceptor, ResolvesServerCert};
 use futures_rustls::rustls::ServerConfig;
 use futures_rustls::{Accept, LazyConfigAcceptor, StartHandshake};
 use std::io;
@@ -18,12 +18,12 @@ pub struct AcmeAcceptor {
 impl AcmeAcceptor {
     #[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
     #[deprecated(note = "please use high-level API via `AcmeState::incoming()` instead or refer to updated low-level API examples")]
-    pub(crate) fn new(resolver: Arc<ResolvesServerCertAcme>) -> Self {
+    pub(crate) fn new(resolver: Arc<dyn ResolvesServerCert>) -> Self {
         let mut config = ServerConfig::builder_with_provider(crypto_provider().into())
             .with_safe_default_protocol_versions()
             .unwrap()
             .with_no_client_auth()
-            .with_cert_resolver(resolver.clone());
+            .with_cert_resolver(resolver);
         config.alpn_protocols.push(ACME_TLS_ALPN_NAME.to_vec());
         Self { config: Arc::new(config) }
     }
@@ -60,24 +60,17 @@ impl<IO: AsyncRead + AsyncWrite + Unpin> Future for AcmeAccept<IO> {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         loop {
             if let Some(validation_accept) = &mut self.validation_accept {
-                return match Pin::new(validation_accept).poll(cx) {
-                    Poll::Ready(Ok(_)) => Poll::Ready(Ok(None)),
-                    Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
-                    Poll::Pending => Poll::Pending,
-                };
+                return Pin::new(validation_accept).poll(cx).map_ok(|_| None);
             }
-
-            return match Pin::new(&mut self.acceptor).poll(cx) {
-                Poll::Ready(Ok(handshake)) => {
-                    if is_tls_alpn_challenge(&handshake.client_hello()) {
-                        self.validation_accept = Some(handshake.into_stream(self.config.clone()));
-                        continue;
-                    }
-                    Poll::Ready(Ok(Some(handshake)))
-                }
-                Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
-                Poll::Pending => Poll::Pending,
+            let poll = Pin::new(&mut self.acceptor).poll(cx);
+            let Poll::Ready(Ok(handshake)) = poll else {
+                return poll.map_ok(|_| None);
             };
+            if is_tls_alpn_challenge(&handshake.client_hello()) {
+                self.validation_accept = Some(handshake.into_stream(self.config.clone()));
+            } else {
+                return Poll::Ready(Ok(Some(handshake)));
+            }
         }
     }
 }

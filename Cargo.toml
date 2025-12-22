@@ -34,6 +34,11 @@ async-web-client = { version = "0.6.2", default-features = false }
 http = "1"
 blocking = "1.4.1"
 tower-service = { version = "0.3.3",  optional=true }
+multi_key_map = "0.3.0"
+async-notify = "0.2.0"
+stream_throttle = { version = "0.5.1", default-features = false, features = ["timer-futures-timer"] }
+pin-project = "1.1.3"
+bytes = "1.5.0"
 
 [dev-dependencies]
 simple_logger = "5.0.0"
@@ -52,6 +57,8 @@ http-body-util = "0.1.1"
 bytes = "1.6.0"
 hyper-util = "0.1.3"
 actix-web = { version = "4", features = ["actix-tls", "rustls-0_23"]}
+rustls = "0.23.35"
+ring = "0.17.14"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -89,3 +96,7 @@ required-features=["tokio"]
 [[example]]
 name="high_level_hyper"
 required-features=["tokio"]
+
+[[example]]
+name="high_level_axum"
+required-features=["axum", "tower"]

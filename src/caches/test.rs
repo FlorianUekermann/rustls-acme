@@ -1,7 +1,7 @@
 use crate::{AccountCache, CertCache};
 use async_trait::async_trait;
 use rcgen::{date_time_ymd, BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, KeyUsagePurpose, PKCS_ECDSA_P256_SHA256};
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 use std::sync::atomic::AtomicPtr;
 use std::sync::Arc;
@@ -24,6 +24,12 @@ pub struct TestCache<EC: Debug = std::io::Error, EA: Debug = std::io::Error> {
     ca_pem: Arc<String>,
     _cert_error: PhantomData<AtomicPtr<Box<EC>>>,
     _account_error: PhantomData<AtomicPtr<Box<EA>>>,
+}
+
+impl Debug for TestCache {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("TestCache")
+    }
 }
 
 impl<EC: Debug, EA: Debug> Default for TestCache<EC, EA> {

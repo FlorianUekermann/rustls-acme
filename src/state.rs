@@ -83,6 +83,16 @@ pub enum OrderError {
     TooManyAttemptsAuth(String),
     #[error("order status stayed on processing too long")]
     ProcessingTimeout(Order),
+    #[error("certificate parsing error: {0}")]
+    CertParse(#[from] CertParseError),
+}
+
+#[derive(Error, Debug)]
+pub enum ResolverError<EC> {
+    #[error("cache error: {0}")]
+    Cache(EC),
+    #[error("certificate parsing error: {0}")]
+    CertParse(#[from] CertParseError),
 }
 
 #[derive(Error, Debug)]
@@ -95,6 +105,10 @@ pub enum CertParseError {
     TooFewPem(usize),
     #[error("unsupported private key type")]
     InvalidPrivateKey,
+    #[error("certificate has no associated dns entries")]
+    NoDns,
+    #[error("certificate does not match expected domains")]
+    InvalidDns,
 }
 
 impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
