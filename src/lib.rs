@@ -113,7 +113,7 @@
 //! - [Josh Triplett](https://github.com/joshtriplett) for many contributions and feedback.
 //! - [Jack Klamer](https://github.com/jklamer) for contributing HTTP-01 challenge support.
 
-#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod acceptor;
 pub mod acme;
