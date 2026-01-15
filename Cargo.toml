@@ -55,7 +55,7 @@ actix-web = { version = "4", features = ["actix-tls", "rustls-0_23"]}
 
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = ["--cfg", "doc_auto_cfg"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["aws-lc-rs", "tls12", "webpki-roots"]
