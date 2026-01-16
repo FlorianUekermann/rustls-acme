@@ -21,6 +21,11 @@ use std::time::Duration;
 use thiserror::Error;
 use x509_parser::parse_x509_certificate;
 
+#[cfg(doc)]
+use crate::is_tls_alpn_challenge;
+#[cfg(doc)]
+use crate::rustls;
+
 #[allow(clippy::type_complexity)]
 pub struct AcmeState<EC: Debug = Infallible, EA: Debug = EC> {
     config: Arc<AcmeConfig<EC, EA>>,
@@ -145,7 +150,8 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
     pub fn resolver(&self) -> Arc<ResolvesServerCertAcme> {
         self.resolver.clone()
     }
-    /// Creates a [rustls::ServerConfig] for TLS-ALPN-01 challenge connections. Use this if [crate::is_tls_alpn_challenge] returns `true`.
+
+    /// Creates a [rustls::ServerConfig] for TLS-ALPN-01 challenge connections. Use this if [is_tls_alpn_challenge] returns `true`.
     #[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
     pub fn challenge_rustls_config(&self) -> Arc<ServerConfig> {
         self.challenge_rustls_config_with_provider(crypto_provider().into())
@@ -160,7 +166,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         rustls_config.alpn_protocols.push(ACME_TLS_ALPN_NAME.to_vec());
         Arc::new(rustls_config)
     }
-    /// Creates a default [rustls::ServerConfig] for accepting regular tls connections. Use this if [crate::is_tls_alpn_challenge] returns `false`.
+    /// Creates a default [rustls::ServerConfig] for accepting regular tls connections. Use this if [is_tls_alpn_challenge] returns `false`.
     /// If you need a [rustls::ServerConfig], which uses the certificates acquired by this [AcmeState],
     /// you may build your own using the output of [AcmeState::resolver].
     #[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
