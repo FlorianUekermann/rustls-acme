@@ -66,7 +66,17 @@ impl ResolvesServerCert for ResolvesServerCertAcme {
             match client_hello.server_name() {
                 None => {
                     log::debug!("client did not supply SNI");
-                    None
+                    match &self.inner.lock().unwrap().challenge_data {
+                        Some(ChallengeData::TlsAlpn01 { sni, cert }) => {
+                            if sni.parse::<std::net::IpAddr>().is_ok() {
+                                log::debug!("returning IP challenge cert for {}", sni);
+                                Some(cert.clone())
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    }
                 }
                 Some(domain) => match &self.inner.lock().unwrap().challenge_data {
                     Some(ChallengeData::TlsAlpn01 { sni, cert }) => {

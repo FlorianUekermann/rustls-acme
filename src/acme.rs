@@ -85,8 +85,28 @@ impl Account {
         Ok((location, body))
     }
     pub async fn new_order(&self, client_config: &Arc<ClientConfig>, domains: Vec<String>) -> Result<(String, Order), AcmeError> {
-        let domains: Vec<Identifier> = domains.into_iter().map(Identifier::Dns).collect();
-        let payload = format!("{{\"identifiers\":{}}}", serde_json::to_string(&domains)?);
+        let mut has_ip = false;
+        let domains: Vec<Identifier> = domains
+            .into_iter()
+            .map(|s| {
+                if s.parse::<std::net::IpAddr>().is_ok() {
+                    has_ip = true;
+                    Identifier::Ip(s)
+                } else {
+                    Identifier::Dns(s)
+                }
+            })
+            .collect();
+        let payload = if has_ip {
+            serde_json::to_string(&serde_json::json!({
+                "identifiers": domains,
+                "profile": "shortlived"
+            }))?
+        } else {
+            serde_json::to_string(&serde_json::json!({
+                "identifiers": domains
+            }))?
+        };
         let response = self.request(client_config, &self.directory.new_order, &payload).await?;
         let url = response.0.ok_or(AcmeError::MissingHeader("Location"))?;
         let order = serde_json::from_str(&response.1)?;
@@ -214,6 +234,16 @@ pub enum AuthStatus {
 #[serde(tag = "type", content = "value", rename_all = "camelCase")]
 pub enum Identifier {
     Dns(String),
+    Ip(String),
+}
+
+impl Identifier {
+    pub fn into_inner(self) -> String {
+        match self {
+            Identifier::Dns(s) => s,
+            Identifier::Ip(s) => s,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
