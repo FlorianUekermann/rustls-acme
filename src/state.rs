@@ -1,5 +1,5 @@
 use crate::acceptor::AcmeAcceptor;
-use crate::acme::{Account, AcmeError, Auth, AuthStatus, Directory, Identifier, Order, OrderStatus, ACME_TLS_ALPN_NAME};
+use crate::acme::{Account, AcmeError, Auth, AuthStatus, Directory, Order, OrderStatus, ACME_TLS_ALPN_NAME};
 use crate::{any_ecdsa_type, crypto_provider, AcmeConfig, Incoming, ResolvesServerCertAcme, UseChallenge};
 use async_io::Timer;
 use chrono::{DateTime, TimeZone, Utc};
@@ -307,7 +307,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         let auth = account.auth(&config.client_config, url).await?;
         let (domain, challenge_url) = match auth.status {
             AuthStatus::Pending => {
-                let Identifier::Dns(domain) = auth.identifier;
+                let domain = auth.identifier.into_inner();
                 log::info!("trigger challenge for {}", &domain);
                 let challenge = match config.challenge_type {
                     UseChallenge::Http01 => {
