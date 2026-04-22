@@ -221,6 +221,7 @@ pub struct Challenge {
     #[serde(rename = "type")]
     pub typ: ChallengeType,
     pub url: String,
+    #[serde(default)]
     pub token: String,
     pub error: Option<Problem>,
 }
