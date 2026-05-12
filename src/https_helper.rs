@@ -2,11 +2,21 @@ use async_web_client::prelude::*;
 use futures::AsyncReadExt;
 use futures_rustls::pki_types::InvalidDnsNameError;
 use futures_rustls::rustls::ClientConfig;
-use http::header::CONTENT_TYPE;
+use http::header::{CONTENT_TYPE, USER_AGENT};
 use http::{Method, Request, Response};
 use std::io;
 use std::sync::Arc;
 use thiserror::Error;
+
+// RFC 8555§6.1:
+//
+// ACME clients MUST send a User-Agent header field, in accordance with
+// [RFC7231].  This header field SHOULD include the name and version of
+// the ACME software in addition to the name and version of the
+// underlying HTTP client software.
+//
+// We don't have a version for `async-web-client` here so we only satisfy 3/4 of the SHOULD
+const USER_AGENT_VALUE: &str = concat!("rustls-acme/", env!("CARGO_PKG_VERSION"), " async-web-client");
 
 pub(crate) async fn https(
     client_config: &Arc<ClientConfig>,
@@ -14,7 +24,8 @@ pub(crate) async fn https(
     method: Method,
     body: Option<String>,
 ) -> Result<Response<String>, HttpsRequestError> {
-    let request = Request::builder().method(method).uri(url.as_ref());
+    let request = Request::builder().method(method).uri(url.as_ref()).header(USER_AGENT, USER_AGENT_VALUE);
+
     let request = if let Some(body) = body {
         request.header(CONTENT_TYPE, "application/jose+json").body(body)
     } else {
