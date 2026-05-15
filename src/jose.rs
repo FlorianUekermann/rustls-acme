@@ -12,7 +12,7 @@ pub(crate) fn sign(key: &EcdsaKeyPair, kid: Option<&str>, nonce: String, url: &s
     };
     let protected = Protected::base64(jwk, kid, nonce, url)?;
     let payload = BASE64_URL_SAFE_NO_PAD.encode(payload);
-    let combined = format!("{}.{}", &protected, &payload);
+    let combined = format!("{}.{}", protected, payload);
     let signature = key.sign(&SystemRandom::new(), combined.as_bytes())?;
     let signature = BASE64_URL_SAFE_NO_PAD.encode(signature.as_ref());
     let body = Body {
