@@ -1,22 +1,33 @@
 use crate::acme::{LETS_ENCRYPT_PRODUCTION_DIRECTORY, LETS_ENCRYPT_STAGING_DIRECTORY};
 use crate::caches::{BoxedErrCache, CompositeCache, NoCache};
+use crate::https_helper::AcmeHttpClient;
 use crate::UseChallenge::TlsAlpn01;
-use crate::{crypto_provider, AccountCache, Cache, CertCache};
+use crate::{AccountCache, Cache, CertCache};
 use crate::{AcmeState, Incoming};
 use core::fmt;
 use futures::{AsyncRead, AsyncWrite, Stream};
-use futures_rustls::pki_types::TrustAnchor;
-use futures_rustls::rustls::crypto::CryptoProvider;
-use futures_rustls::rustls::{ClientConfig, RootCertStore};
 use std::convert::Infallible;
 use std::fmt::Debug;
 use std::sync::Arc;
+
+#[cfg(all(feature = "webpki-roots", feature = "default-http-client"))]
+use crate::crypto_provider;
+#[cfg(feature = "default-http-client")]
+use crate::https_helper::DefaultHttpClient;
+#[cfg(all(feature = "webpki-roots", feature = "default-http-client"))]
+use futures_rustls::pki_types::TrustAnchor;
+#[cfg(all(feature = "webpki-roots", feature = "default-http-client"))]
+use futures_rustls::rustls::crypto::CryptoProvider;
+#[cfg(feature = "default-http-client")]
+use futures_rustls::rustls::ClientConfig;
+#[cfg(all(feature = "webpki-roots", feature = "default-http-client"))]
+use futures_rustls::rustls::RootCertStore;
 
 /// Configuration for an ACME resolver.
 ///
 /// The type parameters represent the error types for the certificate cache and account cache.
 pub struct AcmeConfig<EC: Debug, EA: Debug = EC> {
-    pub(crate) client_config: Arc<ClientConfig>,
+    pub(crate) http_client: Arc<dyn AcmeHttpClient>,
     pub(crate) directory_url: String,
     pub(crate) domains: Vec<String>,
     pub(crate) contact: Vec<String>,
@@ -55,13 +66,13 @@ impl AcmeConfig<Infallible, Infallible> {
     /// # type EA = EC;
     /// let config: AcmeConfig<EC, EA> = AcmeConfig::new(["example.com"]).cache(NoCache::default());
     /// ```
-    #[cfg(all(feature = "webpki-roots", any(feature = "ring", feature = "aws-lc-rs")))]
+    #[cfg(all(feature = "webpki-roots", feature = "default-http-client", any(feature = "ring", feature = "aws-lc-rs")))]
     pub fn new(domains: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
         Self::new_with_provider(domains, crypto_provider().into())
     }
 
     /// Same as [AcmeConfig::new], with a specific [CryptoProvider].
-    #[cfg(feature = "webpki-roots")]
+    #[cfg(all(feature = "webpki-roots", feature = "default-http-client"))]
     pub fn new_with_provider(domains: impl IntoIterator<Item = impl AsRef<str>>, provider: Arc<CryptoProvider>) -> Self {
         let mut root_store = RootCertStore::empty();
         root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
@@ -79,14 +90,7 @@ impl AcmeConfig<Infallible, Infallible> {
                 .with_root_certificates(root_store)
                 .with_no_client_auth(),
         );
-        AcmeConfig {
-            client_config,
-            directory_url: LETS_ENCRYPT_STAGING_DIRECTORY.into(),
-            domains: domains.into_iter().map(|s| s.as_ref().into()).collect(),
-            contact: vec![],
-            cache: Box::new(NoCache::default()),
-            challenge_type: TlsAlpn01,
-        }
+        Self::new_with_client_config(domains, client_config)
     }
 
     /// Creates a new [AcmeConfig] instance with the provided TLS configuration client.
@@ -132,9 +136,23 @@ impl AcmeConfig<Infallible, Infallible> {
     ///     .cache(NoCache::default());
     /// # }
     /// ```
+    #[cfg(feature = "default-http-client")]
     pub fn new_with_client_config(domains: impl IntoIterator<Item = impl AsRef<str>>, client_config: Arc<ClientConfig>) -> Self {
+        Self::new_with_http_client(domains, Arc::new(DefaultHttpClient::new(client_config)))
+    }
+
+    /// Creates a new [AcmeConfig] instance with a custom [AcmeHttpClient] for ACME API calls.
+    ///
+    /// Use this to reuse an HTTP client already present in your application instead of the default
+    /// one. With `default-features = false` (the `default-http-client` feature off) this is the
+    /// only available constructor.
+    ///
+    /// The new [AcmeConfig] instance will initially have no cache, and its type parameters for
+    /// error types will be `Infallible` since the cache cannot return an error. The methods to set
+    /// a cache will change the error types to match those returned by the supplied cache.
+    pub fn new_with_http_client(domains: impl IntoIterator<Item = impl AsRef<str>>, http_client: Arc<dyn AcmeHttpClient>) -> Self {
         AcmeConfig {
-            client_config,
+            http_client,
             directory_url: LETS_ENCRYPT_STAGING_DIRECTORY.into(),
             domains: domains.into_iter().map(|s| s.as_ref().into()).collect(),
             contact: vec![],
@@ -146,8 +164,17 @@ impl AcmeConfig<Infallible, Infallible> {
 
 impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
     /// Set custom `rustls::ClientConfig` for ACME API calls.
+    ///
+    /// This replaces the HTTP client with the default one configured to use the given
+    /// [`ClientConfig`]. To use a custom [`AcmeHttpClient`], use [`AcmeConfig::http_client`].
+    #[cfg(feature = "default-http-client")]
     pub fn client_tls_config(mut self, client_config: Arc<ClientConfig>) -> Self {
-        self.client_config = client_config;
+        self.http_client = Arc::new(DefaultHttpClient::new(client_config));
+        self
+    }
+    /// Set a custom [`AcmeHttpClient`] for ACME API calls.
+    pub fn http_client(mut self, http_client: Arc<dyn AcmeHttpClient>) -> Self {
+        self.http_client = http_client;
         self
     }
     pub fn directory(mut self, directory_url: impl AsRef<str>) -> Self {
@@ -189,7 +216,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
 
     pub fn cache<C: 'static + Cache>(self, cache: C) -> AcmeConfig<C::EC, C::EA> {
         AcmeConfig {
-            client_config: self.client_config,
+            http_client: self.http_client,
             directory_url: self.directory_url,
             domains: self.domains,
             contact: self.contact,

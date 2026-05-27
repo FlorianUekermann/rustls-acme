@@ -2,13 +2,11 @@ use crate::any_ecdsa_type;
 use crate::crypto::error::{KeyRejected, Unspecified};
 use crate::crypto::rand::SystemRandom;
 use crate::crypto::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm, ECDSA_P256_SHA256_FIXED_SIGNING};
-use crate::https_helper::{https, HttpsRequestError};
+use crate::https_helper::{https, AcmeHttpClient, AcmeMethod, AcmeResponse, HttpsRequestError};
 use crate::jose::{key_authorization, key_authorization_sha256, sign, JoseError};
 use base64::prelude::*;
 use futures_rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
-use futures_rustls::rustls::{sign::CertifiedKey, ClientConfig};
-use http::header::ToStrError;
-use http::{Method, Response};
+use futures_rustls::rustls::sign::CertifiedKey;
 use rcgen::{CustomExtension, KeyPair, PKCS_ECDSA_P256_SHA256};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -34,16 +32,16 @@ impl Account {
         let pkcs8 = EcdsaKeyPair::generate_pkcs8(ALG, &rng).unwrap();
         pkcs8.as_ref().to_vec()
     }
-    pub async fn create<'a, S, I>(client_config: &Arc<ClientConfig>, directory: Directory, contact: I) -> Result<Self, AcmeError>
+    pub async fn create<'a, S, I>(client: &Arc<dyn AcmeHttpClient>, directory: Directory, contact: I) -> Result<Self, AcmeError>
     where
         S: AsRef<str> + 'a,
         I: IntoIterator<Item = &'a S>,
     {
         let key_pair = Self::generate_key_pair();
-        Self::create_with_keypair(client_config, directory, contact, &key_pair).await
+        Self::create_with_keypair(client, directory, contact, &key_pair).await
     }
     pub async fn create_with_keypair<'a, S, I>(
-        client_config: &Arc<ClientConfig>,
+        client: &Arc<dyn AcmeHttpClient>,
         directory: Directory,
         contact: I,
         key_pair: &[u8],
@@ -65,53 +63,53 @@ impl Account {
             "contact": contact,
         })
         .to_string();
-        let body = sign(&key_pair, None, directory.nonce(client_config).await?, &directory.new_account, &payload)?;
-        let response = https(client_config, &directory.new_account, Method::POST, Some(body)).await?;
+        let body = sign(&key_pair, None, directory.nonce(client).await?, &directory.new_account, &payload)?;
+        let response = https(client, &directory.new_account, AcmeMethod::Post, Some(body)).await?;
         let kid = get_header(&response, "Location")?;
         Ok(Account { key_pair, kid, directory })
     }
-    async fn request(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>, payload: &str) -> Result<(Option<String>, String), AcmeError> {
+    async fn request(&self, client: &Arc<dyn AcmeHttpClient>, url: impl AsRef<str>, payload: &str) -> Result<(Option<String>, String), AcmeError> {
         let body = sign(
             &self.key_pair,
             Some(&self.kid),
-            self.directory.nonce(client_config).await?,
+            self.directory.nonce(client).await?,
             url.as_ref(),
             payload,
         )?;
-        let response = https(client_config, url.as_ref(), Method::POST, Some(body)).await?;
+        let response = https(client, url.as_ref(), AcmeMethod::Post, Some(body)).await?;
         let location = get_header(&response, "Location").ok();
-        let body = response.into_body();
+        let body = response.body;
         log::debug!("response: {body:?}");
         Ok((location, body))
     }
-    pub async fn new_order(&self, client_config: &Arc<ClientConfig>, domains: Vec<String>) -> Result<(String, Order), AcmeError> {
+    pub async fn new_order(&self, client: &Arc<dyn AcmeHttpClient>, domains: Vec<String>) -> Result<(String, Order), AcmeError> {
         let domains: Vec<Identifier> = domains.into_iter().map(Identifier::Dns).collect();
         let payload = format!("{{\"identifiers\":{}}}", serde_json::to_string(&domains)?);
-        let response = self.request(client_config, &self.directory.new_order, &payload).await?;
+        let response = self.request(client, &self.directory.new_order, &payload).await?;
         let url = response.0.ok_or(AcmeError::MissingHeader("Location"))?;
         let order = serde_json::from_str(&response.1)?;
         Ok((url, order))
     }
-    pub async fn auth(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>) -> Result<Auth, AcmeError> {
+    pub async fn auth(&self, client: &Arc<dyn AcmeHttpClient>, url: impl AsRef<str>) -> Result<Auth, AcmeError> {
         let payload = "".to_string();
-        let response = self.request(client_config, url, &payload).await?;
+        let response = self.request(client, url, &payload).await?;
         Ok(serde_json::from_str(&response.1)?)
     }
-    pub async fn challenge(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>) -> Result<(), AcmeError> {
-        self.request(client_config, &url, "{}").await?;
+    pub async fn challenge(&self, client: &Arc<dyn AcmeHttpClient>, url: impl AsRef<str>) -> Result<(), AcmeError> {
+        self.request(client, &url, "{}").await?;
         Ok(())
     }
-    pub async fn order(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>) -> Result<Order, AcmeError> {
-        let response = self.request(client_config, &url, "").await?;
+    pub async fn order(&self, client: &Arc<dyn AcmeHttpClient>, url: impl AsRef<str>) -> Result<Order, AcmeError> {
+        let response = self.request(client, &url, "").await?;
         Ok(serde_json::from_str(&response.1)?)
     }
-    pub async fn finalize(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>, csr: &[u8]) -> Result<Order, AcmeError> {
+    pub async fn finalize(&self, client: &Arc<dyn AcmeHttpClient>, url: impl AsRef<str>, csr: &[u8]) -> Result<Order, AcmeError> {
         let payload = format!("{{\"csr\":\"{}\"}}", BASE64_URL_SAFE_NO_PAD.encode(csr));
-        let response = self.request(client_config, &url, &payload).await?;
+        let response = self.request(client, &url, &payload).await?;
         Ok(serde_json::from_str(&response.1)?)
     }
-    pub async fn certificate(&self, client_config: &Arc<ClientConfig>, url: impl AsRef<str>) -> Result<String, AcmeError> {
-        Ok(self.request(client_config, &url, "").await?.1)
+    pub async fn certificate(&self, client: &Arc<dyn AcmeHttpClient>, url: impl AsRef<str>) -> Result<String, AcmeError> {
+        Ok(self.request(client, &url, "").await?.1)
     }
     pub fn tls_alpn_01<'a>(&self, challenges: &'a [Challenge], domain: String) -> Result<(&'a Challenge, CertifiedKey), AcmeError> {
         let challenge = challenges.iter().find(|c| c.typ == ChallengeType::TlsAlpn01);
@@ -149,12 +147,12 @@ pub struct Directory {
 }
 
 impl Directory {
-    pub async fn discover(client_config: &Arc<ClientConfig>, url: impl AsRef<str>) -> Result<Self, AcmeError> {
-        let body = https(client_config, url, Method::GET, None).await?.into_body();
+    pub async fn discover(client: &Arc<dyn AcmeHttpClient>, url: impl AsRef<str>) -> Result<Self, AcmeError> {
+        let body = https(client, url, AcmeMethod::Get, None).await?.body;
         Ok(serde_json::from_str(&body)?)
     }
-    pub async fn nonce(&self, client_config: &Arc<ClientConfig>) -> Result<String, AcmeError> {
-        let response = &https(client_config, &self.new_nonce.as_str(), Method::HEAD, None).await?;
+    pub async fn nonce(&self, client: &Arc<dyn AcmeHttpClient>) -> Result<String, AcmeError> {
+        let response = &https(client, &self.new_nonce.as_str(), AcmeMethod::Head, None).await?;
         get_header(response, "replay-nonce")
     }
 }
@@ -246,8 +244,6 @@ pub enum AcmeError {
     Json(#[from] serde_json::Error),
     #[error("http request error: {0}")]
     HttpRequest(#[from] HttpsRequestError),
-    #[error("non-string http response header: {0}")]
-    HttpResponseNonStringHeader(#[from] ToStrError),
     #[error("invalid key pair: {0}")]
     KeyRejected(#[from] KeyRejected),
     #[error("crypto error: {0}")]
@@ -260,15 +256,6 @@ pub enum AcmeError {
     NoHttp01Challenge,
 }
 
-impl From<http::Error> for AcmeError {
-    fn from(e: http::Error) -> Self {
-        Self::HttpRequest(HttpsRequestError::from(e))
-    }
-}
-
-fn get_header(response: &Response<String>, header: &'static str) -> Result<String, AcmeError> {
-    match response.headers().get_all(header).iter().next_back() {
-        None => Err(AcmeError::MissingHeader(header)),
-        Some(value) => Ok(value.to_str()?.to_string()),
-    }
+fn get_header(response: &AcmeResponse, header: &'static str) -> Result<String, AcmeError> {
+    response.header(header).map(str::to_string).ok_or(AcmeError::MissingHeader(header))
 }

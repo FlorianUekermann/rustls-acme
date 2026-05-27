@@ -140,9 +140,13 @@ pub use acceptor::*;
 pub use cache::*;
 pub use config::*;
 pub use helpers::*;
+pub use https_helper::{AcmeHttpClient, AcmeMethod, AcmeRequest, AcmeResponse, HttpsRequestError};
 pub use incoming::*;
 pub use resolver::*;
 pub use state::*;
+
+#[cfg(feature = "default-http-client")]
+pub use https_helper::DefaultHttpClient;
 
 #[cfg(feature = "aws-lc-rs")]
 use ::aws_lc_rs as crypto;
