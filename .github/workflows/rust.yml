@@ -52,6 +52,30 @@ jobs:
       - run: rustup component add clippy
       - run: rustup component add rustfmt
       - run: cargo fmt --check
-      - run: cargo build --verbose --no-default-features --features webpki-roots,${{ matrix.crypto }},${{ matrix.tokio }}
-      - run: cargo test --verbose --no-default-features --features webpki-roots,${{ matrix.crypto }},${{ matrix.tokio }}
-      - run: cargo clippy --tests --no-default-features --features webpki-roots,${{ matrix.crypto }},${{ matrix.tokio }} -- -D warnings
+      - run: cargo build --verbose --no-default-features --features default-http-client,webpki-roots,${{ matrix.crypto }},${{ matrix.tokio }}
+      - run: cargo test --verbose --no-default-features --features default-http-client,webpki-roots,${{ matrix.crypto }},${{ matrix.tokio }}
+      - run: cargo clippy --tests --no-default-features --features default-http-client,webpki-roots,${{ matrix.crypto }},${{ matrix.tokio }} -- -D warnings
+  pluggable_http_client:
+    # Guards that the crate builds and works with a custom AcmeHttpClient when the built-in
+    # default-http-client is disabled. The examples require default-http-client, so this job
+    # restricts compilation to the library and the pluggable_http_client integration test.
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        crypto: ["ring", "aws-lc-rs"]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: no_default_http_client_${{ matrix.crypto }}
+      - run: rustup update stable && rustup default stable
+      - run: rustup component add clippy
+      - run: cargo build --verbose --no-default-features --features webpki-roots,${{ matrix.crypto }}
+      - run: cargo test --verbose --no-default-features --features webpki-roots,${{ matrix.crypto }} --lib --test pluggable_http_client
+      - run: cargo clippy --no-default-features --features webpki-roots,${{ matrix.crypto }} --lib --test pluggable_http_client -- -D warnings
