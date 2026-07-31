@@ -68,6 +68,10 @@ tls12 = ["async-web-client/tls12"]
 webpki-roots = ["dep:webpki-roots"]
 
 [[example]]
+name="rsa_cert"
+required-features=["aws-lc-rs", "webpki-roots"]
+
+[[example]]
 name="low_level_actix"
 
 [[example]]

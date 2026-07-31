@@ -1,6 +1,6 @@
-use crate::{AccountCache, CertCache};
+use crate::{AccountCache, CertCache, CertKeyType};
 use async_trait::async_trait;
-use rcgen::{date_time_ymd, BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, KeyUsagePurpose, PKCS_ECDSA_P256_SHA256};
+use rcgen::{date_time_ymd, BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, KeyUsagePurpose};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::atomic::AtomicPtr;
@@ -22,12 +22,19 @@ pub struct TestCache<EC: Debug = std::io::Error, EA: Debug = std::io::Error> {
     ca_key: Arc<KeyPair>,
     ca_cert: Arc<rcgen::Certificate>,
     ca_pem: Arc<String>,
+    cert_key_type: CertKeyType,
     _cert_error: PhantomData<AtomicPtr<Box<EC>>>,
     _account_error: PhantomData<AtomicPtr<Box<EA>>>,
 }
 
 impl<EC: Debug, EA: Debug> Default for TestCache<EC, EA> {
     fn default() -> Self {
+        Self::new(CertKeyType::default())
+    }
+}
+
+impl<EC: Debug, EA: Debug> TestCache<EC, EA> {
+    pub fn new(cert_key_type: CertKeyType) -> Self {
         let mut params = CertificateParams::default();
         let mut distinguished_name = DistinguishedName::new();
         distinguished_name.push(DnType::CountryName, "US");
@@ -38,20 +45,19 @@ impl<EC: Debug, EA: Debug> Default for TestCache<EC, EA> {
         params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
         params.not_before = date_time_ymd(2000, 1, 1);
         params.not_after = date_time_ymd(3000, 1, 1);
-        let key_pair = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).unwrap();
+        let key_pair = KeyPair::generate_for(cert_key_type.signature_algorithm()).unwrap();
         let ca_cert = params.self_signed(&key_pair).unwrap();
         let ca_pem = ca_cert.pem();
         Self {
             ca_key: key_pair.into(),
             ca_cert: ca_cert.into(),
             ca_pem: ca_pem.into(),
+            cert_key_type,
             _cert_error: Default::default(),
             _account_error: Default::default(),
         }
     }
-}
 
-impl<EC: Debug, EA: Debug> TestCache<EC, EA> {
     pub fn ca_pem(&self) -> &str {
         &self.ca_pem
     }
@@ -67,7 +73,7 @@ impl<EC: Debug, EA: Debug> CertCache for TestCache<EC, EA> {
         params.distinguished_name = distinguished_name;
         params.not_before = date_time_ymd(2000, 1, 1);
         params.not_after = date_time_ymd(3000, 1, 1);
-        let key_pair = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).unwrap();
+        let key_pair = KeyPair::generate_for(self.cert_key_type.signature_algorithm()).unwrap();
         let cert = params.signed_by(&key_pair, &self.ca_cert, &self.ca_key).unwrap();
         let private_key_pem = key_pair.serialize_pem();
         let signed_cert_pem = cert.pem();

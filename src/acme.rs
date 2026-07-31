@@ -1,4 +1,4 @@
-use crate::any_ecdsa_type;
+use crate::any_supported_type;
 use crate::crypto::error::{KeyRejected, Unspecified};
 use crate::crypto::rand::SystemRandom;
 use crate::crypto::signature::{EcdsaKeyPair, EcdsaSigningAlgorithm, ECDSA_P256_SHA256_FIXED_SIGNING};
@@ -125,7 +125,7 @@ impl Account {
         let key_pair = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256)?;
         let cert = params.self_signed(&key_pair)?;
 
-        let sk = any_ecdsa_type(&PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_pair.serialize_der()))).unwrap();
+        let sk = any_supported_type(&PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_pair.serialize_der()))).unwrap();
         let certified_key = CertifiedKey::new(vec![cert.der().clone()], sk);
         Ok((challenge, certified_key))
     }

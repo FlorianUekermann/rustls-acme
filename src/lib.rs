@@ -154,13 +154,13 @@ use ::ring as crypto;
 compile_error!("rustls-acme requires either the ring or aws-lc-rs feature enabled");
 
 #[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
-pub(crate) fn any_ecdsa_type(
+pub(crate) fn any_supported_type(
     der: &futures_rustls::pki_types::PrivateKeyDer,
 ) -> Result<std::sync::Arc<dyn futures_rustls::rustls::sign::SigningKey>, futures_rustls::rustls::Error> {
     #[cfg(all(feature = "ring", not(feature = "aws-lc-rs")))]
-    return futures_rustls::rustls::crypto::ring::sign::any_ecdsa_type(der);
+    return futures_rustls::rustls::crypto::ring::sign::any_supported_type(der);
     #[cfg(feature = "aws-lc-rs")]
-    return futures_rustls::rustls::crypto::aws_lc_rs::sign::any_ecdsa_type(der);
+    return futures_rustls::rustls::crypto::aws_lc_rs::sign::any_supported_type(der);
 }
 
 #[cfg(any(feature = "ring", feature = "aws-lc-rs"))]
