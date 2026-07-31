@@ -1,4 +1,4 @@
-use crate::acme::{LETS_ENCRYPT_PRODUCTION_DIRECTORY, LETS_ENCRYPT_STAGING_DIRECTORY};
+use crate::acme::{Identifier, LETS_ENCRYPT_PRODUCTION_DIRECTORY, LETS_ENCRYPT_STAGING_DIRECTORY};
 use crate::caches::{BoxedErrCache, CompositeCache, NoCache};
 use crate::UseChallenge::TlsAlpn01;
 use crate::{crypto_provider, AccountCache, Cache, CertCache};
@@ -10,6 +10,7 @@ use futures_rustls::rustls::crypto::CryptoProvider;
 use futures_rustls::rustls::{ClientConfig, RootCertStore};
 use std::convert::Infallible;
 use std::fmt::Debug;
+use std::net::IpAddr;
 use std::sync::Arc;
 
 /// Configuration for an ACME resolver.
@@ -19,6 +20,7 @@ pub struct AcmeConfig<EC: Debug, EA: Debug = EC> {
     pub(crate) client_config: Arc<ClientConfig>,
     pub(crate) directory_url: String,
     pub(crate) domains: Vec<String>,
+    pub(crate) ips: Vec<IpAddr>,
     pub(crate) contact: Vec<String>,
     pub(crate) cache: Box<dyn Cache<EC = EC, EA = EA>>,
     pub(crate) challenge_type: UseChallenge,
@@ -56,13 +58,13 @@ impl AcmeConfig<Infallible, Infallible> {
     /// let config: AcmeConfig<EC, EA> = AcmeConfig::new(["example.com"]).cache(NoCache::default());
     /// ```
     #[cfg(all(feature = "webpki-roots", any(feature = "ring", feature = "aws-lc-rs")))]
-    pub fn new(domains: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
-        Self::new_with_provider(domains, crypto_provider().into())
+    pub fn new(identifiers: impl IntoIterator<Item = impl Into<Identifier>>) -> Self {
+        Self::new_with_provider(identifiers, crypto_provider().into())
     }
 
     /// Same as [AcmeConfig::new], with a specific [CryptoProvider].
     #[cfg(feature = "webpki-roots")]
-    pub fn new_with_provider(domains: impl IntoIterator<Item = impl AsRef<str>>, provider: Arc<CryptoProvider>) -> Self {
+    pub fn new_with_provider(identifiers: impl IntoIterator<Item = impl Into<Identifier>>, provider: Arc<CryptoProvider>) -> Self {
         let mut root_store = RootCertStore::empty();
         root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
             let ta = ta.to_owned();
@@ -79,10 +81,12 @@ impl AcmeConfig<Infallible, Infallible> {
                 .with_root_certificates(root_store)
                 .with_no_client_auth(),
         );
+        let (domains, ips) = extract_from_identifiers(identifiers);
         AcmeConfig {
             client_config,
             directory_url: LETS_ENCRYPT_STAGING_DIRECTORY.into(),
-            domains: domains.into_iter().map(|s| s.as_ref().into()).collect(),
+            domains,
+            ips,
             contact: vec![],
             cache: Box::new(NoCache::default()),
             challenge_type: TlsAlpn01,
@@ -132,11 +136,13 @@ impl AcmeConfig<Infallible, Infallible> {
     ///     .cache(NoCache::default());
     /// # }
     /// ```
-    pub fn new_with_client_config(domains: impl IntoIterator<Item = impl AsRef<str>>, client_config: Arc<ClientConfig>) -> Self {
+    pub fn new_with_client_config(identifiers: impl IntoIterator<Item = impl Into<Identifier>>, client_config: Arc<ClientConfig>) -> Self {
+        let (domains, ips) = extract_from_identifiers(identifiers);
         AcmeConfig {
             client_config,
             directory_url: LETS_ENCRYPT_STAGING_DIRECTORY.into(),
-            domains: domains.into_iter().map(|s| s.as_ref().into()).collect(),
+            domains,
+            ips,
             contact: vec![],
             cache: Box::new(NoCache::default()),
             challenge_type: TlsAlpn01,
@@ -171,6 +177,26 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
         self
     }
 
+    /// Add IP addresses to the certificate. IP identifiers will use Let's Encrypt's
+    /// shortlived profile and produce nonce-extended duration certificates (6 days).
+    pub fn ips(mut self, ips: impl IntoIterator<Item = IpAddr>) -> Self {
+        self.ips.extend(ips);
+        self
+    }
+
+    /// Add a single IP address to the certificate.
+    pub fn ips_push(mut self, ip: IpAddr) -> Self {
+        self.ips.push(ip);
+        self
+    }
+
+    /// Return all identifiers (domains + IP strings) as a combined list.
+    pub(crate) fn all_domains(&self) -> Vec<String> {
+        let mut all = self.domains.clone();
+        all.extend(self.ips.iter().map(|ip| ip.to_string()));
+        all
+    }
+
     /// Provide a list of contacts for the account.
     ///
     /// Note that email addresses must include a `mailto:` prefix.
@@ -192,6 +218,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
             client_config: self.client_config,
             directory_url: self.directory_url,
             domains: self.domains,
+            ips: self.ips,
             contact: self.contact,
             cache: Box::new(cache),
             challenge_type: self.challenge_type,
@@ -247,11 +274,25 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
     }
 }
 
+fn extract_from_identifiers(identifiers: impl IntoIterator<Item = impl Into<Identifier>>) -> (Vec<String>, Vec<IpAddr>) {
+    let identifiers: Vec<Identifier> = identifiers.into_iter().map(Into::into).collect();
+    let mut domains = Vec::new();
+    let mut ips = Vec::new();
+    for id in identifiers {
+        match id {
+            Identifier::Dns(s) => domains.push(s),
+            Identifier::Ip(addr) => ips.push(addr),
+        }
+    }
+    (domains, ips)
+}
+
 impl<EC: 'static + Debug, EA: 'static + Debug> fmt::Debug for AcmeConfig<EC, EA> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AcmeConfig")
             .field("directory", &self.directory_url)
             .field("domains", &self.domains)
+            .field("ips", &self.ips)
             .field("contact", &self.contact)
             .finish_non_exhaustive()
     }

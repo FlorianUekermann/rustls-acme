@@ -1,5 +1,5 @@
 use crate::acceptor::AcmeAcceptor;
-use crate::acme::{Account, AcmeError, Auth, AuthStatus, Directory, Identifier, Order, OrderStatus, ACME_TLS_ALPN_NAME};
+use crate::acme::{Account, AcmeError, Auth, AuthStatus, Directory, Order, OrderStatus, ACME_TLS_ALPN_NAME};
 use crate::{any_ecdsa_type, crypto_provider, AcmeConfig, Incoming, ResolvesServerCertAcme, UseChallenge};
 use async_io::Timer;
 use chrono::{DateTime, TimeZone, Utc};
@@ -191,7 +191,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             early_action: None,
             load_cert: Some(Box::pin({
                 let config = config.clone();
-                async move { config.cache.load_cert(&config.domains, &config.directory_url).await }
+                async move { config.cache.load_cert(&config.all_domains(), &config.directory_url).await }
             })),
             load_account: Some(Box::pin({
                 let config = config.clone();
@@ -245,7 +245,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         }
         let config = self.config.clone();
         self.early_action = Some(Box::pin(async move {
-            match config.cache.store_cert(&config.domains, &config.directory_url, &pem).await {
+            match config.cache.store_cert(&config.all_domains(), &config.directory_url, &pem).await {
                 Ok(()) => Ok(EventOk::CertCacheStore),
                 Err(err) => Err(EventError::CertCacheStore(err)),
             }
@@ -256,12 +256,12 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         let directory = Directory::discover(&config.client_config, &config.directory_url).await?;
         let account = Account::create_with_keypair(&config.client_config, directory, &config.contact, &key_pair).await?;
 
-        let mut params = CertificateParams::new(config.domains.clone())?;
+        let mut params = CertificateParams::new(config.all_domains())?;
         params.distinguished_name = DistinguishedName::new();
         let key_pair = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256)?;
         let csr = params.serialize_request(&key_pair)?;
 
-        let (order_url, mut order) = account.new_order(&config.client_config, config.domains.clone()).await?;
+        let (order_url, mut order) = account.new_order(&config.client_config, config.all_domains()).await?;
         loop {
             match order.status {
                 OrderStatus::Pending => {
@@ -307,8 +307,8 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         let auth = account.auth(&config.client_config, url).await?;
         let (domain, challenge_url) = match auth.status {
             AuthStatus::Pending => {
-                let Identifier::Dns(domain) = auth.identifier;
-                log::info!("trigger challenge for {}", domain);
+                let domain = auth.identifier.clone().into_inner();
+                log::info!("trigger challenge for {}", &domain);
                 let challenge = match config.challenge_type {
                     UseChallenge::Http01 => {
                         let (challenge, key_auth) = account.http_01(&auth.challenges)?;
@@ -317,7 +317,14 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
                     }
                     UseChallenge::TlsAlpn01 => {
                         let (challenge, auth_key) = account.tls_alpn_01(&auth.challenges, domain.clone())?;
-                        resolver.set_tls_alpn_01_challenge_data(domain.clone(), Arc::new(auth_key));
+                        // For IP identifiers, use reverse-DNS (ARPA) format as the SNI,
+                        // because RFC 8738 §6 requires the CA to send SNI in ARPA format
+                        // (RFC 6066 does not permit IP addresses in SNI).
+                        let sni = match &auth.identifier {
+                            crate::acme::Identifier::Ip(addr) => crate::acme::ip_to_arpa(*addr),
+                            crate::acme::Identifier::Dns(_) => domain.clone(),
+                        };
+                        resolver.set_tls_alpn_01_challenge_data(sni, Arc::new(auth_key));
                         challenge
                     }
                 };
@@ -340,7 +347,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             let auth = account.auth(&config.client_config, url).await?;
             match auth.status {
                 AuthStatus::Pending => {
-                    log::info!("authorization for {} still pending", domain);
+                    log::info!("authorization for {} still pending", &domain);
                     account.challenge(&config.client_config, &challenge_url).await?
                 }
                 AuthStatus::Valid => {

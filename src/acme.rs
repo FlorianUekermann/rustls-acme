@@ -85,8 +85,28 @@ impl Account {
         Ok((location, body))
     }
     pub async fn new_order(&self, client_config: &Arc<ClientConfig>, domains: Vec<String>) -> Result<(String, Order), AcmeError> {
-        let domains: Vec<Identifier> = domains.into_iter().map(Identifier::Dns).collect();
-        let payload = format!("{{\"identifiers\":{}}}", serde_json::to_string(&domains)?);
+        let mut has_ip = false;
+        let domains: Vec<Identifier> = domains
+            .into_iter()
+            .map(|s| {
+                if let Ok(addr) = s.parse::<std::net::IpAddr>() {
+                    has_ip = true;
+                    Identifier::Ip(addr)
+                } else {
+                    Identifier::Dns(s)
+                }
+            })
+            .collect();
+        let payload = if has_ip {
+            serde_json::to_string(&serde_json::json!({
+                "identifiers": domains,
+                "profile": "shortlived"
+            }))?
+        } else {
+            serde_json::to_string(&serde_json::json!({
+                "identifiers": domains
+            }))?
+        };
         let response = self.request(client_config, &self.directory.new_order, &payload).await?;
         let url = response.0.ok_or(AcmeError::MissingHeader("Location"))?;
         let order = serde_json::from_str(&response.1)?;
@@ -214,6 +234,39 @@ pub enum AuthStatus {
 #[serde(tag = "type", content = "value", rename_all = "camelCase")]
 pub enum Identifier {
     Dns(String),
+    Ip(std::net::IpAddr),
+}
+
+impl Identifier {
+    pub fn into_inner(self) -> String {
+        match self {
+            Identifier::Dns(s) => s,
+            Identifier::Ip(addr) => addr.to_string(),
+        }
+    }
+
+    /// Returns `true` if this identifier is an IP address.
+    pub fn is_ip(&self) -> bool {
+        matches!(self, Identifier::Ip(_))
+    }
+}
+
+impl From<std::net::IpAddr> for Identifier {
+    fn from(addr: std::net::IpAddr) -> Self {
+        Identifier::Ip(addr)
+    }
+}
+
+impl From<String> for Identifier {
+    fn from(s: String) -> Self {
+        Identifier::Dns(s)
+    }
+}
+
+impl From<&str> for Identifier {
+    fn from(s: &str) -> Self {
+        Identifier::Dns(s.to_owned())
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -270,5 +323,41 @@ fn get_header(response: &Response<String>, header: &'static str) -> Result<Strin
     match response.headers().get_all(header).iter().next_back() {
         None => Err(AcmeError::MissingHeader(header)),
         Some(value) => Ok(value.to_str()?.to_string()),
+    }
+}
+
+/// Convert an IP address to the reverse-DNS (ARPA) format used for TLS-ALPN-01 challenge SNI.
+///
+/// Per RFC 8738 §6, since RFC 6066 does not permit IP addresses in the SNI HostName field,
+/// the server MUST use the IN-ADDR.ARPA or IP6.ARPA reverse mapping instead.
+///
+/// # Examples
+///
+/// ```
+/// use rustls_acme::acme::ip_to_arpa;
+/// use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+///
+/// assert_eq!(
+///     ip_to_arpa(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1))),
+///     "1.2.0.192.in-addr.arpa"
+/// );
+/// assert_eq!(
+///     ip_to_arpa(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))),
+///     "1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa"
+/// );
+/// ```
+pub fn ip_to_arpa(addr: std::net::IpAddr) -> String {
+    match addr {
+        std::net::IpAddr::V4(v4) => {
+            let o = v4.octets();
+            format!("{}.{}.{}.{}.in-addr.arpa", o[3], o[2], o[1], o[0])
+        }
+        std::net::IpAddr::V6(v6) => {
+            let o = v6.octets();
+            let hex: String = o.iter().map(|&b| format!("{:02x}", b)).collect();
+            let labels: String = hex.chars().rev().map(|c| format!("{c}.")).collect();
+            // remove trailing dot, add ip6.arpa suffix
+            labels.trim_end_matches('.').to_owned() + ".ip6.arpa"
+        }
     }
 }
