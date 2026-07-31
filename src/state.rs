@@ -1,6 +1,6 @@
 use crate::acceptor::AcmeAcceptor;
 use crate::acme::{Account, AcmeError, Auth, AuthStatus, Directory, Identifier, Order, OrderStatus, ACME_TLS_ALPN_NAME};
-use crate::{any_ecdsa_type, crypto_provider, AcmeConfig, Incoming, ResolvesServerCertAcme, UseChallenge};
+use crate::{any_supported_type, crypto_provider, AcmeConfig, Incoming, ResolvesServerCertAcme, UseChallenge};
 use async_io::Timer;
 use chrono::{DateTime, TimeZone, Utc};
 use core::fmt;
@@ -10,7 +10,7 @@ use futures_rustls::pki_types::{CertificateDer as RustlsCertificate, PrivateKeyD
 use futures_rustls::rustls::crypto::CryptoProvider;
 use futures_rustls::rustls::sign::CertifiedKey;
 use futures_rustls::rustls::ServerConfig;
-use rcgen::{CertificateParams, DistinguishedName, KeyPair, PKCS_ECDSA_P256_SHA256};
+use rcgen::{CertificateParams, DistinguishedName, KeyPair};
 use std::convert::Infallible;
 use std::fmt::Debug;
 use std::future::Future;
@@ -207,7 +207,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         if pems.len() < 2 {
             return Err(CertParseError::TooFewPem(pems.len()));
         }
-        let pk = match any_ecdsa_type(&PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(pems.remove(0).contents()))) {
+        let pk = match any_supported_type(&PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(pems.remove(0).contents()))) {
             Ok(pk) => pk,
             Err(_) => return Err(CertParseError::InvalidPrivateKey),
         };
@@ -258,7 +258,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
 
         let mut params = CertificateParams::new(config.domains.clone())?;
         params.distinguished_name = DistinguishedName::new();
-        let key_pair = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256)?;
+        let key_pair = KeyPair::generate_for(config.cert_key_type.signature_algorithm())?;
         let csr = params.serialize_request(&key_pair)?;
 
         let (order_url, mut order) = account.new_order(&config.client_config, config.domains.clone()).await?;

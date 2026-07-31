@@ -8,6 +8,9 @@ use futures::{AsyncRead, AsyncWrite, Stream};
 use futures_rustls::pki_types::TrustAnchor;
 use futures_rustls::rustls::crypto::CryptoProvider;
 use futures_rustls::rustls::{ClientConfig, RootCertStore};
+#[cfg(feature = "aws-lc-rs")]
+use rcgen::PKCS_RSA_SHA256;
+use rcgen::{SignatureAlgorithm, PKCS_ECDSA_P256_SHA256, PKCS_ECDSA_P384_SHA384};
 use std::convert::Infallible;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -22,11 +25,36 @@ pub struct AcmeConfig<EC: Debug, EA: Debug = EC> {
     pub(crate) contact: Vec<String>,
     pub(crate) cache: Box<dyn Cache<EC = EC, EA = EA>>,
     pub(crate) challenge_type: UseChallenge,
+    pub(crate) cert_key_type: CertKeyType,
 }
 
 pub enum UseChallenge {
     Http01,
     TlsAlpn01,
+}
+
+/// Key type of the certificates requested from the ACME server.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CertKeyType {
+    #[default]
+    EcdsaP256,
+    EcdsaP384,
+    /// Requires the `aws-lc-rs` feature and, for clients without TLS 1.3, the `tls12` feature.
+    #[cfg(feature = "aws-lc-rs")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "aws-lc-rs")))]
+    Rsa2048,
+}
+
+impl CertKeyType {
+    pub(crate) fn signature_algorithm(&self) -> &'static SignatureAlgorithm {
+        match self {
+            CertKeyType::EcdsaP256 => &PKCS_ECDSA_P256_SHA256,
+            CertKeyType::EcdsaP384 => &PKCS_ECDSA_P384_SHA384,
+            #[cfg(feature = "aws-lc-rs")]
+            CertKeyType::Rsa2048 => &PKCS_RSA_SHA256,
+        }
+    }
 }
 
 impl AcmeConfig<Infallible, Infallible> {
@@ -86,6 +114,7 @@ impl AcmeConfig<Infallible, Infallible> {
             contact: vec![],
             cache: Box::new(NoCache::default()),
             challenge_type: TlsAlpn01,
+            cert_key_type: CertKeyType::default(),
         }
     }
 
@@ -140,6 +169,7 @@ impl AcmeConfig<Infallible, Infallible> {
             contact: vec![],
             cache: Box::new(NoCache::default()),
             challenge_type: TlsAlpn01,
+            cert_key_type: CertKeyType::default(),
         }
     }
 }
@@ -195,6 +225,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
             contact: self.contact,
             cache: Box::new(cache),
             challenge_type: self.challenge_type,
+            cert_key_type: self.cert_key_type,
         }
     }
     pub fn cache_compose<CC: 'static + CertCache, CA: 'static + AccountCache>(self, cert_cache: CC, account_cache: CA) -> AcmeConfig<CC::EC, CA::EA> {
@@ -211,6 +242,11 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeConfig<EC, EA> {
     }
     pub fn challenge_type(mut self, challenge_type: UseChallenge) -> Self {
         self.challenge_type = challenge_type;
+        self
+    }
+    /// Set the key type of newly ordered certificates, [CertKeyType::EcdsaP256] by default.
+    pub fn cert_key_type(mut self, cert_key_type: CertKeyType) -> Self {
+        self.cert_key_type = cert_key_type;
         self
     }
     pub fn state(self) -> AcmeState<EC, EA> {
@@ -253,6 +289,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> fmt::Debug for AcmeConfig<EC, EA>
             .field("directory", &self.directory_url)
             .field("domains", &self.domains)
             .field("contact", &self.contact)
+            .field("cert_key_type", &self.cert_key_type)
             .finish_non_exhaustive()
     }
 }
