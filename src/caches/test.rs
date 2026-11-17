@@ -1,6 +1,8 @@
 use crate::{AccountCache, CertCache};
 use async_trait::async_trait;
-use rcgen::{date_time_ymd, BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, KeyUsagePurpose, PKCS_ECDSA_P256_SHA256};
+use rcgen::{
+    date_time_ymd, BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, Issuer, KeyPair, KeyUsagePurpose, PKCS_ECDSA_P256_SHA256,
+};
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::atomic::AtomicPtr;
@@ -20,7 +22,6 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct TestCache<EC: Debug = std::io::Error, EA: Debug = std::io::Error> {
     ca_key: Arc<KeyPair>,
-    ca_cert: Arc<rcgen::Certificate>,
     ca_pem: Arc<String>,
     _cert_error: PhantomData<AtomicPtr<Box<EC>>>,
     _account_error: PhantomData<AtomicPtr<Box<EA>>>,
@@ -43,7 +44,6 @@ impl<EC: Debug, EA: Debug> Default for TestCache<EC, EA> {
         let ca_pem = ca_cert.pem();
         Self {
             ca_key: key_pair.into(),
-            ca_cert: ca_cert.into(),
             ca_pem: ca_pem.into(),
             _cert_error: Default::default(),
             _account_error: Default::default(),
@@ -68,7 +68,8 @@ impl<EC: Debug, EA: Debug> CertCache for TestCache<EC, EA> {
         params.not_before = date_time_ymd(2000, 1, 1);
         params.not_after = date_time_ymd(3000, 1, 1);
         let key_pair = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).unwrap();
-        let cert = params.signed_by(&key_pair, &self.ca_cert, &self.ca_key).unwrap();
+        let ca = Issuer::from_params(&params, self.ca_key.as_ref());
+        let cert = params.signed_by(&key_pair, &ca).unwrap();
         let private_key_pem = key_pair.serialize_pem();
         let signed_cert_pem = cert.pem();
         Ok(Some([&private_key_pem, "\n", &signed_cert_pem, "\n", &self.ca_pem].concat().into_bytes()))
