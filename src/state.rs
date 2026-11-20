@@ -2,7 +2,6 @@ use crate::acceptor::AcmeAcceptor;
 use crate::acme::{Account, AcmeError, Auth, AuthStatus, Directory, Identifier, Order, OrderStatus, ACME_TLS_ALPN_NAME};
 use crate::{any_ecdsa_type, crypto_provider, AcmeConfig, Incoming, ResolvesServerCertAcme, UseChallenge};
 use async_io::Timer;
-use chrono::{DateTime, TimeZone, Utc};
 use core::fmt;
 use futures::prelude::*;
 use futures::ready;
@@ -17,7 +16,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use x509_parser::parse_x509_certificate;
 
@@ -202,7 +201,8 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             wait: None,
         }
     }
-    fn parse_cert(pem: &[u8]) -> Result<(CertifiedKey, [DateTime<Utc>; 2]), CertParseError> {
+    /// Returns the key and the certificate's validity as `[not_before, not_after]` in unix seconds.
+    fn parse_cert(pem: &[u8]) -> Result<(CertifiedKey, [i64; 2]), CertParseError> {
         let mut pems = pem::parse_many(pem)?;
         if pems.len() < 2 {
             return Err(CertParseError::TooFewPem(pems.len()));
@@ -215,7 +215,7 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
         let validity = match parse_x509_certificate(&cert_chain[0]) {
             Ok((_, cert)) => {
                 let validity = cert.validity();
-                [validity.not_before, validity.not_after].map(|t| Utc.timestamp_opt(t.timestamp(), 0).earliest().unwrap())
+                [validity.not_before.timestamp(), validity.not_after.timestamp()]
             }
             Err(err) => return Err(CertParseError::X509(err)),
         };
@@ -235,10 +235,12 @@ impl<EC: 'static + Debug, EA: 'static + Debug> AcmeState<EC, EA> {
             }
         };
         self.resolver.set_cert(Arc::new(cert));
-        let wait_duration = (validity[1] - (validity[1] - validity[0]) / 3 - Utc::now())
-            .max(chrono::Duration::zero())
-            .to_std()
-            .unwrap_or_default();
+        // Renew once two thirds of the validity period have passed.
+        let [not_before, not_after] = validity;
+        let lifetime = Duration::from_secs(not_after.saturating_sub(not_before).max(0) as u64);
+        let renew_at = Duration::from_secs(not_after.max(0) as u64).saturating_sub(lifetime / 3);
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).expect("system time before Unix epoch");
+        let wait_duration = renew_at.saturating_sub(now);
         self.wait = Some(Timer::after(wait_duration));
         if cached {
             return Ok(EventOk::DeployedCachedCert);
